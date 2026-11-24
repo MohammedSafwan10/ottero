@@ -18,6 +18,7 @@ pub mod paths;
 pub mod perf;
 pub mod private_file;
 pub mod shell;
+pub mod sync;
 pub mod ui_state;
 pub mod updates;
 pub mod vault;

@@ -197,6 +197,18 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
 
 ## Log
 
+### 2026-11-24: Desktop sync client & encrypted push/pull engine (`apps/desktop/src/sync/`)
+
+- Added `apps/desktop/src/sync/client.rs` (`SyncClient` over `ureq` HTTPS-only
+  except loopback, mapping `401`/`402`/`410 CursorExpired`/typed `SyncErrorCode`).
+- Added `apps/desktop/src/sync/engine.rs` (`ensure_collection_keys`,
+  `build_push_batch`, `sync_once`): seals outbox changes per collection key +
+  `item_aad`, drains batches, pulls and verifies remote HLCs/blobs, skips own
+  device echoes, and sets `needs_full_resync` on HTTP 410.
+- Added in-process fake sync server test proving two-device E2EE push/pull,
+  ciphertext-only server storage, tamper rejection, and `CursorExpired` handling.
+- Verified with `./scripts/check.sh`.
+
 ### 2026-11-24: Per-collection sync crypto + migration 0013 (`sync_state`, `sync_outbox`)
 
 - `ottero_crypto::sync`: HKDF-SHA256 collection-key wrapping (`wrap_collection_key`
