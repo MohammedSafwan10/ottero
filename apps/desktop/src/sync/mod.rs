@@ -2,9 +2,14 @@
 
 pub mod client;
 pub mod engine;
+pub mod record;
 
 pub use client::{DEFAULT_SYNC_URL, SyncClient, SyncClientError};
 pub use engine::{DecryptedChange, SyncCycleReport, ensure_collection_keys, sync_once};
+pub use record::{
+    SyncNotePayload, SyncProjectPayload, SyncTaskPayload, apply_decrypted_change,
+    enqueue_local_change,
+};
 
 #[cfg(test)]
 mod tests {
@@ -309,5 +314,175 @@ mod tests {
         .unwrap_err();
         assert!(matches!(expired, SyncClientError::CursorExpired));
         assert!(store_b.sync_state().expect("state").needs_full_resync);
+    }
+
+    #[test]
+    fn two_devices_converge_notes_and_merge_concurrent_task_fields_by_lww() {
+        use ottero_core::{Note, Priority, Task};
+
+        let server = FakeSyncServer::start();
+        let client = SyncClient::new(&server.url).expect("client");
+        let account_key = SecretKey::generate().expect("key");
+        let t0 = ts(1_760_000_000_000);
+        let t1 = ts(1_760_000_001_000);
+        let t2 = ts(1_760_000_002_000);
+
+        let mut store_a = Store::open_in_memory().expect("db a");
+        let mut store_b = Store::open_in_memory().expect("db b");
+
+        let _ = ensure_collection_keys(&store_a, &account_key, t0).expect("keys a");
+        for wrapped in store_a.sync_collection_keys().expect("wrapped") {
+            store_b.save_sync_collection_key(&wrapped).expect("save b");
+        }
+
+        // Device A creates a Note and a Task.
+        let note = Note::new("Launch plan", "Encrypted sync works.", t0).expect("note");
+        let mut task_a = Task::new("Ship sync", t0).expect("task");
+        store_a.save_note(&note).expect("save note");
+        store_a.save_task(&task_a).expect("save task");
+
+        enqueue_local_change(
+            &store_a,
+            "dev-a",
+            Collection::Notes,
+            &note.id().to_string(),
+            &["record"],
+            false,
+            &SyncNotePayload::from(&note),
+            t0,
+        )
+        .expect("enqueue note");
+        enqueue_local_change(
+            &store_a,
+            "dev-a",
+            Collection::Tasks,
+            &task_a.id().to_string(),
+            &[
+                "title",
+                "notes",
+                "status",
+                "priority",
+                "due",
+                "deleted_at",
+                "project",
+            ],
+            false,
+            &SyncTaskPayload::from(&task_a),
+            t0,
+        )
+        .expect("enqueue task");
+
+        // A pushes, B pulls & applies.
+        sync_once(
+            &mut store_a,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-a",
+            &account_key,
+            t0,
+        )
+        .expect("push a");
+        let rep_b = sync_once(
+            &mut store_b,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-b",
+            &account_key,
+            t0,
+        )
+        .expect("pull b");
+        for ch in &rep_b.decrypted {
+            apply_decrypted_change(&mut store_b, ch).expect("apply b");
+        }
+        assert_eq!(
+            store_b
+                .note(note.id())
+                .expect("note b")
+                .expect("exists")
+                .title(),
+            "Launch plan"
+        );
+        let mut task_b = store_b.task(task_a.id()).expect("task b").expect("exists");
+        assert_eq!(task_b.title(), "Ship sync");
+
+        // Concurrent offline edits on different fields:
+        // A renames the task at t1; B raises priority at t2.
+        task_a.rename("Ship E2EE sync", t1).expect("rename a");
+        store_a.save_task(&task_a).expect("save a");
+        enqueue_local_change(
+            &store_a,
+            "dev-a",
+            Collection::Tasks,
+            &task_a.id().to_string(),
+            &["title"],
+            false,
+            &SyncTaskPayload::from_task(&task_a, &["title"]),
+            t1,
+        )
+        .expect("enqueue title");
+
+        task_b.set_priority(Priority::High, t2).expect("prio b");
+        store_b.save_task(&task_b).expect("save b");
+        enqueue_local_change(
+            &store_b,
+            "dev-b",
+            Collection::Tasks,
+            &task_b.id().to_string(),
+            &["priority"],
+            false,
+            &SyncTaskPayload::from_task(&task_b, &["priority"]),
+            t2,
+        )
+        .expect("enqueue prio");
+
+        // Both push & pull, then apply.
+        let r1 = sync_once(
+            &mut store_a,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-a",
+            &account_key,
+            t2,
+        )
+        .expect("sync a 2");
+        for ch in &r1.decrypted {
+            apply_decrypted_change(&mut store_a, ch).expect("apply a 2");
+        }
+        let r2 = sync_once(
+            &mut store_b,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-b",
+            &account_key,
+            t2,
+        )
+        .expect("sync b 2");
+        for ch in &r2.decrypted {
+            apply_decrypted_change(&mut store_b, ch).expect("apply b 2");
+        }
+        let r3 = sync_once(
+            &mut store_a,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-a",
+            &account_key,
+            t2,
+        )
+        .expect("sync a 3");
+        for ch in &r3.decrypted {
+            apply_decrypted_change(&mut store_a, ch).expect("apply a 3");
+        }
+
+        let final_a = store_a.task(task_a.id()).expect("final a").expect("exists");
+        let final_b = store_b.task(task_a.id()).expect("final b").expect("exists");
+        assert_eq!(final_a.title(), "Ship E2EE sync");
+        assert_eq!(final_a.priority(), Priority::High);
+        assert_eq!(final_b.title(), "Ship E2EE sync");
+        assert_eq!(final_b.priority(), Priority::High);
     }
 }

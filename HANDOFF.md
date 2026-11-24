@@ -197,6 +197,17 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
 
 ## Log
 
+### 2026-11-24: Sync record serialization & per-field LWW remote apply
+
+- Added `apps/desktop/src/sync/record.rs`: wire payloads (`SyncNotePayload`,
+  `SyncTaskPayload` with `changed_fields`, `SyncProjectPayload`,
+  `FocusSession`), `enqueue_local_change` (ticks HLC + writes `sync_outbox` +
+  records local field clocks), and `apply_decrypted_change` (true per-field LWW
+  merge for Tasks so concurrent edits to different fields converge without
+  clobbering).
+- Added two-device convergence & concurrent per-field LWW conflict merge test in
+  `apps/desktop/src/sync/mod.rs`. Verified with `./scripts/check.sh`.
+
 ### 2026-11-24: Desktop sync client & encrypted push/pull engine (`apps/desktop/src/sync/`)
 
 - Added `apps/desktop/src/sync/client.rs` (`SyncClient` over `ureq` HTTPS-only
