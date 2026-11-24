@@ -57,6 +57,10 @@ pub struct Library {
     /// Why the open account couldn't open a linked vault (shown on the
     /// locked screen); cleared when the account or the vault changes.
     vault_account_problem: Option<AccountUnlock>,
+    /// True while a background cloud sync cycle is running.
+    sync_in_flight: bool,
+    /// Last user-facing sync error, cleared on the next sync attempt.
+    sync_last_error: Option<String>,
 }
 
 /// What opens an archive or backup the user picked.
@@ -91,6 +95,8 @@ impl Library {
             archive_dir: std::env::temp_dir().join("ottero-vault-archives"),
             account: crate::account::AccountSession::detached(),
             vault_account_problem: None,
+            sync_in_flight: false,
+            sync_last_error: None,
         }
     }
 }

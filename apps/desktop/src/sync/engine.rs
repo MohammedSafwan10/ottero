@@ -374,3 +374,236 @@ pub fn sync_once_with_apply(
 
     Ok(report)
 }
+
+/// Snapshot of local sync inputs passed to the background thread so network
+/// I/O never touches SQLite or blocks the GPUI main thread.
+pub struct BackgroundSyncInput {
+    pub sync_url: String,
+    pub bearer_token: Zeroizing<String>,
+    pub account_id: String,
+    pub device_id: String,
+    pub account_key: SecretKey,
+    pub local_keys: Vec<WrappedCollectionKey>,
+    pub pending: Vec<ottero_storage::OutboxEntry>,
+    pub last_pull_seq: i64,
+    pub last_hlc: Option<Hlc>,
+    pub now: Timestamp,
+}
+
+/// Result of one background network sync cycle, ready to apply on the main thread.
+pub struct BackgroundSyncOutcome {
+    pub authoritative_keys: Vec<WrappedCollectionKey>,
+    pub acked_ids: Vec<ChangeId>,
+    pub pages: Vec<(i64, Vec<DecryptedChange>)>,
+    pub last_hlc: Option<Hlc>,
+}
+
+/// Executes key exchange, push, and pull purely over the network (no SQLite).
+pub fn run_background_sync(
+    input: BackgroundSyncInput,
+) -> Result<BackgroundSyncOutcome, SyncClientError> {
+    let client = SyncClient::new(&input.sync_url)?;
+
+    // 1. Key exchange (adopt server authoritative keys; upload missing).
+    let remote_keys = client.get_keys(&input.bearer_token)?;
+    let mut keys: HashMap<Collection, SecretKey> = HashMap::with_capacity(Collection::ALL.len());
+    let mut authoritative: HashMap<Collection, WrappedCollectionKey> =
+        HashMap::with_capacity(Collection::ALL.len());
+
+    for rk in &remote_keys.keys {
+        let wrapped_bytes = decode_blob(&rk.wrapped_key_b64)?;
+        let opened =
+            unwrap_collection_key(&input.account_key, rk.collection.code(), &wrapped_bytes)?;
+        keys.insert(rk.collection, opened);
+        authoritative.insert(
+            rk.collection,
+            WrappedCollectionKey {
+                collection: rk.collection,
+                wrapped_key: wrapped_bytes,
+                key_version: rk.key_version,
+                updated_at: input.now,
+            },
+        );
+    }
+
+    let mut to_upload = Vec::new();
+    for local in &input.local_keys {
+        if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(local.collection) {
+            let opened = unwrap_collection_key(
+                &input.account_key,
+                local.collection.code(),
+                &local.wrapped_key,
+            )?;
+            to_upload.push(CollectionKeyWire {
+                collection: local.collection,
+                wrapped_key_b64: encode_blob(&local.wrapped_key),
+                key_version: local.key_version,
+            });
+            authoritative.insert(local.collection, local.clone());
+            slot.insert(opened);
+        }
+    }
+    for collection in Collection::ALL {
+        if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(collection) {
+            let fresh = SecretKey::generate()?;
+            let wrapped = wrap_collection_key(&input.account_key, collection.code(), &fresh)?;
+            to_upload.push(CollectionKeyWire {
+                collection,
+                wrapped_key_b64: encode_blob(&wrapped),
+                key_version: 1,
+            });
+            authoritative.insert(
+                collection,
+                WrappedCollectionKey {
+                    collection,
+                    wrapped_key: wrapped,
+                    key_version: 1,
+                    updated_at: input.now,
+                },
+            );
+            slot.insert(fresh);
+        }
+    }
+    if !to_upload.is_empty() {
+        let resp = client.put_keys(
+            &input.bearer_token,
+            &PutKeysRequest {
+                protocol: PROTOCOL_VERSION,
+                keys: to_upload,
+            },
+        )?;
+        for rk in &resp.keys {
+            let wrapped_bytes = decode_blob(&rk.wrapped_key_b64)?;
+            let opened =
+                unwrap_collection_key(&input.account_key, rk.collection.code(), &wrapped_bytes)?;
+            keys.insert(rk.collection, opened);
+            authoritative.insert(
+                rk.collection,
+                WrappedCollectionKey {
+                    collection: rk.collection,
+                    wrapped_key: wrapped_bytes,
+                    key_version: rk.key_version,
+                    updated_at: input.now,
+                },
+            );
+        }
+    }
+
+    // 2. Push pending outbox entries in byte-budgeted batches.
+    let mut acked_ids = Vec::new();
+    let mut idx = 0;
+    while idx < input.pending.len() {
+        let mut batch = Vec::new();
+        let mut total_bytes: usize = 0;
+        while idx < input.pending.len() && batch.len() < MAX_PUSH_BATCH {
+            let entry = &input.pending[idx];
+            let key = keys
+                .get(&entry.collection)
+                .ok_or(ottero_crypto::CryptoError::Format)?;
+            let hlc_str = entry.hlc.to_string();
+            let aad = item_aad(
+                &input.account_id,
+                entry.collection,
+                &entry.item_id,
+                entry.schema_version,
+                &hlc_str,
+                entry.deleted,
+            )?;
+            let ct = seal_sync_item(key, entry.fields_json.as_bytes(), &aad)?;
+            if !batch.is_empty() && total_bytes.saturating_add(ct.len()) > MAX_PUSH_TOTAL_BYTES {
+                break;
+            }
+            total_bytes = total_bytes.saturating_add(ct.len());
+            batch.push(PushChange {
+                change_id: entry.change_id,
+                collection: entry.collection,
+                item_id: entry.item_id.clone(),
+                hlc: entry.hlc.clone(),
+                schema_version: entry.schema_version,
+                deleted: entry.deleted,
+                blob_b64: encode_blob(&ct),
+            });
+            idx += 1;
+        }
+        let req = PushRequest {
+            protocol: PROTOCOL_VERSION,
+            device_id: input.device_id.clone(),
+            changes: batch,
+        };
+        req.validate()?;
+        let resp = client.push(&input.bearer_token, &req)?;
+        acked_ids.extend(resp.accepted.into_iter().map(|a| a.change_id));
+    }
+
+    // 3. Pull pages and decrypt.
+    let mut clock = match &input.last_hlc {
+        Some(last) => HlcClock::from_last(&input.device_id, last)?,
+        None => HlcClock::new(&input.device_id)?,
+    };
+    let mut last_hlc = input.last_hlc;
+    let mut cursor = input.last_pull_seq;
+    let mut pages = Vec::new();
+    loop {
+        let resp = client.pull(
+            &input.bearer_token,
+            &PullRequest {
+                protocol: PROTOCOL_VERSION,
+                after_seq: cursor,
+                limit: DEFAULT_PULL_LIMIT,
+            },
+        )?;
+        let mut page_decrypted = Vec::with_capacity(resp.changes.len());
+        for remote in resp.changes {
+            let merged = match clock.receive(&remote.hlc, input.now.as_millisecond()) {
+                Ok(hlc) => hlc,
+                Err(ProtocolError::ClockDrift) => clock.tick(input.now.as_millisecond())?,
+                Err(err) => return Err(err.into()),
+            };
+            last_hlc = Some(merged);
+            if remote.device_id == input.device_id {
+                continue;
+            }
+            let key = keys
+                .get(&remote.collection)
+                .ok_or(ottero_crypto::CryptoError::Format)?;
+            let hlc_str = remote.hlc.to_string();
+            let aad = item_aad(
+                &input.account_id,
+                remote.collection,
+                &remote.item_id,
+                remote.schema_version,
+                &hlc_str,
+                remote.deleted,
+            )?;
+            let ct = decode_blob(&remote.blob_b64)?;
+            let mut pt = open_sync_item(key, &ct, &aad)?;
+            let payload_json = Zeroizing::new(
+                String::from_utf8(std::mem::take(&mut *pt))
+                    .map_err(|_| SyncClientError::Decode("non-UTF8 sync payload".into()))?,
+            );
+            page_decrypted.push(DecryptedChange {
+                seq: remote.seq,
+                change_id: remote.change_id,
+                device_id: remote.device_id,
+                collection: remote.collection,
+                item_id: remote.item_id,
+                hlc: remote.hlc,
+                schema_version: remote.schema_version,
+                deleted: remote.deleted,
+                payload_json,
+            });
+        }
+        cursor = cursor.max(resp.next_seq);
+        pages.push((cursor, page_decrypted));
+        if !resp.has_more {
+            break;
+        }
+    }
+
+    Ok(BackgroundSyncOutcome {
+        authoritative_keys: authoritative.into_values().collect(),
+        acked_ids,
+        pages,
+        last_hlc,
+    })
+}

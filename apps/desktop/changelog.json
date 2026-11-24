@@ -1,5 +1,32 @@
 [
   {
+    "version": "0.2.0",
+    "date": "2026-11-24",
+    "title": "Ottero Cloud, 2FA, and Encrypted Sync",
+    "summary": "Optional Ottero Cloud accounts with authenticator two-step verification, zero-knowledge end-to-end encrypted sync, and subscription management.",
+    "sections": [
+      {
+        "title": "New",
+        "emoji": "✨",
+        "items": [
+          "Ottero Cloud accounts in Settings → Account with Secret Key sign-in, printable Emergency Kit, and device session management.",
+          "Authenticator app two-step verification (TOTP) with 10 single-use backup codes.",
+          "Link Passwords to your Ottero account so one unlock opens both, with idle and sleep auto-lock.",
+          "End-to-end encrypted sync engine (XChaCha20-Poly1305) with non-blocking Sync now and command palette action.",
+          "Upgrade to Ottero Cloud and manage billing directly from Settings → Account."
+        ]
+      },
+      {
+        "title": "Fixed",
+        "emoji": "🔧",
+        "items": [
+          "Hardened Emergency Kit and vault backup file permissions.",
+          "Improved vault unlock error recovery and cleared sensitive buffers on lock and sign-out."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.1.3",
     "date": "2026-11-17",
     "title": "Calmfold is now Ottero",

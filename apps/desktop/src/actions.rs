@@ -44,6 +44,7 @@ actions!(
         RestoreVaultBackup,
         GoSettings,
         OpenAccountSettings,
+        SyncNow,
         CreateAccount,
         SignInToCloud,
         SignOutOfCloud,

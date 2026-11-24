@@ -431,6 +431,35 @@ impl Library {
         &self.account
     }
 
+    /// Requests a hosted checkout URL for `"monthly"` or `"yearly"`.
+    pub fn billing_checkout_url(
+        &self,
+        interval: &'static str,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Task<Result<String, String>> {
+        let Some(token) = self.account.current_token() else {
+            return gpui_kit::Task::ready(Err("Sign in again to upgrade.".into()));
+        };
+        let api = Arc::clone(&self.account.api);
+        cx.background_executor().spawn(async move {
+            api.billing_checkout(&token, interval)
+                .map_err(|err| err.message())
+        })
+    }
+
+    /// Requests a hosted customer billing portal URL.
+    pub fn billing_portal_url(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Task<Result<String, String>> {
+        let Some(token) = self.account.current_token() else {
+            return gpui_kit::Task::ready(Err("Sign in again to manage billing.".into()));
+        };
+        let api = Arc::clone(&self.account.api);
+        cx.background_executor()
+            .spawn(async move { api.billing_portal(&token).map_err(|err| err.message()) })
+    }
+
     pub fn set_account_session(&mut self, session: AccountSession) {
         self.account = session;
     }

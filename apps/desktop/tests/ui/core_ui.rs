@@ -475,7 +475,11 @@ fn release_history_opens_from_about_and_returns_by_button_or_escape(cx: &mut Tes
             w.render_frame(cx);
             let texts = gpui_kit::base::test_support::texts(w);
             assert!(texts.iter().any(|t| t.text() == "What’s new"));
-            assert!(texts.iter().any(|t| t.text() == "Calmfold is now Ottero"));
+            assert!(
+                texts
+                    .iter()
+                    .any(|t| t.text() == "Ottero Cloud, 2FA, and Encrypted Sync")
+            );
             assert!(texts.iter().any(|t| t.text() == "Installed"));
             w.click("release-0.1.1", cx);
         })

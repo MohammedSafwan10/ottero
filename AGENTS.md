@@ -94,6 +94,13 @@ Do the best version, not the quick one. The owner reviews the running app.
 11. **Do not code-sign** with any identity found on the machine. Development
     builds must not touch the system keychain (see `docs/security.md`).
 12. **Screenshots** only via `scripts/screenshot.sh` (Ottero window only).
+13. **Public repo boundary.** This repo (`ottero`) is public and open-source
+    for the local-first desktop app only. Never commit cloud backend internals,
+    payment/email vendor details, hosting/VPS specs, pricing/monetization
+    strategy, internal admin routes, personal emails, or local machine paths
+    here (including in `HANDOFF.md`, `changelog.json`, `docs/`, or comments).
+    Cloud backend, billing, and business strategy docs belong strictly in the
+    private `ottero-cloud` repo.
 
 ## Definition of done
 

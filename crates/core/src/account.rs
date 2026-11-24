@@ -223,7 +223,7 @@ impl CloudSource {
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "razorpay" => Some(Self::Paid),
+            "dodo" | "razorpay" => Some(Self::Paid),
             "grant" => Some(Self::Granted),
             "owner" => Some(Self::Owner),
             _ => None,

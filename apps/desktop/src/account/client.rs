@@ -355,6 +355,14 @@ pub trait AccountApi: Send + Sync {
     fn sign_out(&self, token: &SessionToken) -> ApiResult<()>;
     fn sessions(&self, token: &SessionToken) -> ApiResult<Vec<SessionInfo>>;
     fn revoke_session(&self, token: &SessionToken, session_token: &str) -> ApiResult<()>;
+    /// Creates a hosted checkout URL for `"monthly"` or `"yearly"`.
+    fn billing_checkout(&self, _token: &SessionToken, _interval: &str) -> ApiResult<String> {
+        Err(ApiError::Server)
+    }
+    /// Creates a hosted customer billing portal URL.
+    fn billing_portal(&self, _token: &SessionToken) -> ApiResult<String> {
+        Err(ApiError::Server)
+    }
 }
 
 /// The server address: `OTTERO_ACCOUNT_URL`, else the build's default.
@@ -1027,6 +1035,36 @@ impl AccountApi for HttpAccountClient {
             Err(general(&reply, true))
         }
     }
+
+    fn billing_checkout(&self, token: &SessionToken, interval: &str) -> ApiResult<String> {
+        #[derive(Deserialize)]
+        struct Body {
+            url: String,
+        }
+        let reply = self.post(
+            "/api/billing/checkout",
+            &json!({ "interval": interval }),
+            Some(token),
+        )?;
+        if !ok(&reply) {
+            return Err(general(&reply, true));
+        }
+        let body: Body = parse(&reply)?;
+        Ok(body.url)
+    }
+
+    fn billing_portal(&self, token: &SessionToken) -> ApiResult<String> {
+        #[derive(Deserialize)]
+        struct Body {
+            url: String,
+        }
+        let reply = self.post("/api/billing/portal", &json!({}), Some(token))?;
+        if !ok(&reply) {
+            return Err(general(&reply, true));
+        }
+        let body: Body = parse(&reply)?;
+        Ok(body.url)
+    }
 }
 
 #[cfg(test)]
@@ -1162,7 +1200,7 @@ mod tests {
             (
                 403,
                 vec![],
-                r#"{"message":"This account is blocked. Contact safwan@nexdark.com.","code":"BANNED_USER"}"#,
+                r#"{"message":"This account is blocked. Contact hello@nexdark.com.","code":"BANNED_USER"}"#,
             ),
             (500, vec![], r#"{"error":"Something went wrong"}"#),
         ]);
@@ -1189,7 +1227,7 @@ mod tests {
         assert_eq!(
             api.sign_in("a@b.co", HEX).map(|_| ()),
             Err(ApiError::Blocked(
-                "This account is blocked. Contact safwan@nexdark.com.".into()
+                "This account is blocked. Contact hello@nexdark.com.".into()
             ))
         );
         assert_eq!(

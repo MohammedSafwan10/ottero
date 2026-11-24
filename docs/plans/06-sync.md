@@ -12,24 +12,18 @@ task, event, habit, vault or project content, and never sees the password.
 | Piece | Tech | Where | Repo |
 | --- | --- | --- | --- |
 | Desktop app | Rust/GPUI (this repo): native sign-up/sign-in, sync engine | user's computer | `ottero` (public) |
-| Account API | Hono + Better Auth + PostgreSQL (Node 24) | `account.nexdark.com/api` | `ottero-cloud` (private) |
-| Account and admin web | React + shadcn/ui, same origin as the API | `account.nexdark.com` | `ottero-cloud` |
-| Sync server | Rust axum + sqlx + PostgreSQL, WebSocket | `sync.nexdark.com` | `ottero-cloud` |
-| Payments | Dodo Payments (Merchant of Record, subscriptions + webhooks) | Dodo Payments | — |
-| Email | Brevo over SMTP (swap to SES by config) | Brevo | — |
+| Account & sync services | Hosted account API, Rust sync server, billing & email | `account.nexdark.com` / `sync.nexdark.com` | private |
 
-All services run on the existing Coolify server (OCI ARM, 12 GB) with one
-PostgreSQL 17 instance, two databases (`accounts`, `sync`), nightly encrypted
-off-server backups, and Coolify health checks. The protocol crate shared by
-the app and the sync server lives in this repo (`crates/sync-protocol`, no IO)
-so the open-source client documents exactly what it sends.
+The protocol crate shared by the app and the sync server lives in this repo
+(`crates/sync-protocol`, no IO) so the open-source client documents exactly
+what it sends.
 
 ## 2. Sign-up and sign-in (inside the app)
 
 Sign-in is a native form in the app, not a web page, because the password is
 also the root of the encryption key and must never leave the device in a form
-that opens data. The browser is used only for billing (Dodo Payments Checkout) and
-the account/admin website.
+that opens data. The browser is used only for hosted subscription checkout and
+billing management.
 
 ### Key derivation (one password + Secret Key, 1Password model)
 
@@ -65,7 +59,7 @@ server stores: Argon2id(auth_key, server_salt, m=64 MiB) — never auth_key itse
 ### Flow
 
 1. **Sign up:** email + password → device derives keys → API creates the
-   account (unverified) → Brevo sends a 6-digit code (10 min, 5 tries) →
+   account (unverified) → server sends a 6-digit verification code (10 min, 5 tries) →
    user types it in the app → account verified → app shows the **Emergency
    Kit** (Secret Key + recovery code, printable PDF) and asks the user to
    confirm they saved it.
@@ -171,63 +165,29 @@ item payload = XChaCha20-Poly1305(collection_key, plaintext,
 | Encrypted cloud backup, 30-day note history | — | yes |
 | QR device approval | — | yes |
 
-- Proposed prices: ₹129/month or ₹999/year (India), $3.99/month or $36/year
-  (rest of world), 14-day trial. Final numbers are the owner's call.
-- **Entitlements** table, the one source of truth the sync server checks:
-  `entitlement(user_id, plan, source = dodo | grant | owner, external_sub_id,
-  status, starts_at, ends_at, note, granted_by)`. Provider-agnostic so another
-  gateway can be added later if needed.
-- **Dodo Payments (Merchant of Record):** Subscriptions with global tax/VAT/GST
-  handled by Dodo. Upgrade opens `account.nexdark.com/upgrade` (Dodo Payments
-  Checkout) in the browser; verified Standard Webhooks events (stored
-  idempotently by event ID) update the entitlement; the app picks it up on its
-  next token refresh. Payment failure: 7-day grace period, then sync pauses
-  (read-only cloud copy for 30 days, local data untouched).
-- **Build order:** wire Dodo Payments **after** encrypted sync works end to end
-  (the `owner` and `grant` entitlement sources let us dogfood and beta-test
-  sync first).
-- Owner account `itzmesafwan1@gmail.com`: role `owner`, entitlement source
-  `owner`, never expires.
+- **Entitlements** are provider-agnostic on the server (`paid` / `grant` /
+  `owner`); the sync server checks the user's active entitlement before
+  accepting sync traffic.
+- **Billing:** Upgrading or managing a subscription opens a hosted checkout or
+  billing portal URL returned by the account API (`POST /api/billing/checkout`
+  and `POST /api/billing/portal`). Local data is never locked behind a
+  subscription.
 
-## 6. Admin panel (`account.nexdark.com/admin`)
+## 6. Security checklist (gate before launch)
 
-Roles: `owner` (everything), `admin` (no role changes, no deletions),
-`support` (read-only). Every action is written to an append-only audit log.
-
-- **Dashboard:** users, sign-ups over time, active syncing devices, paying
-  users, MRR (INR and USD), trials, churn, failed payments, storage.
-- **Users:** search by email/name/ID; filter by plan, status (active,
-  trial, past due, banned, unverified), sign-up date, last sync, country.
-- **User detail:** profile, verification, 2FA on/off, devices and sessions,
-  storage used, entitlements, Dodo Payments subscription and invoices, audit
-  history.
-- **Actions:** grant Cloud free (optionally until a date), revoke Cloud,
-  cancel the Dodo Payments subscription, block/unblock (signs out every session and
-  stops sync), sign out one device, resend verification, delete the account
-  (owner only, with a typed confirmation).
-- **Never available:** reading user content (it is encrypted), impersonating
-  a user, or setting a user's password.
-
-## 7. Security checklist (gate before launch)
-
-- [ ] Threat model reviewed: stolen server DB, malicious server, stolen
+- [x] Threat model reviewed: stolen server DB, malicious server, stolen
       device, phishing, lost password, compromised admin account.
-- [ ] Crypto test vectors, round trips and tamper tests in `crates/crypto`.
-- [ ] Admin and owner accounts require passkey or TOTP. (Server enforces
-      TOTP for staff on admin routes; users can turn it on in the app.)
-- [ ] Secrets only in Coolify environment variables; none in repos or logs;
-      logs never contain emails' codes, tokens, keys or payloads.
-- [ ] Webhook signatures verified; replayed events ignored.
-- [ ] Backups restore-tested; account deletion removes server data within 30
-      days and backups age out.
-- [ ] Privacy policy and terms updated before the first paid sign-up.
+- [x] Crypto test vectors, round trips and tamper tests in `crates/crypto`.
+- [x] Two-step verification (TOTP) supported in the app.
+- [x] Secrets kept strictly in server environment variables; none in repos or
+      logs; logs never contain verification codes, tokens, keys, or payloads.
+- [x] Webhook signatures verified; replayed events ignored.
+- [x] Privacy policy and terms published before accepting paid sign-ups.
 
-## 8. Steps
+## 7. Steps
 
-1. [ ] This plan + ADR 0010 reviewed by the owner.
-2. [ ] `ottero-cloud` repo; PostgreSQL + account API (Better Auth, entitlements,
-       Brevo email, rate limits) on Coolify at `account.nexdark.com`; owner
-       account; backups.
+1. [x] This plan + ADR 0010 accepted.
+2. [x] Hosted account API and sync server deployed (private backend repo).
 3. [x] App: Settings → Account (sign up, verify, sign in, sign out), key
        derivation and recovery kit in `crates/crypto`; tokens per keychain policy.
    - [x] `ottero_crypto::account`: Argon2id + Secret Key + HKDF, wrapped
@@ -239,34 +199,20 @@ Roles: `owner` (everything), `admin` (no role changes, no deletions),
          sign in (+ Secret Key on a new device), signed-in page with
          plan, Secret Key, kit, devices and sign-out; actions + palette.
    - [x] Tests: crypto/core units, client against an in-process server,
-         6 UI flows; real end-to-end run against the local API on two
-         data folders (2026-11-17).
+         UI flows.
    - [x] Two-step verification (2026-11-17): sign-in asks for the
          authenticator or a backup code; Security → Two-step verification
-         turns it on (password → QR code + setup key → code → backup codes
-         behind "I saved my backup codes"), gives new backup codes, turns it
-         off (confirm + password). QR via `qrcode` (ADR 0013). Fake server
-         with RFC 6238, lockout and single-use backup codes; client tests,
-         6 UI flows; live run against the local API.
+         turns it on, gives new backup codes, turns it off. QR via `qrcode`
+         (ADR 0013).
    - [x] Passwords under the account key (2026-11-18, ADR 0014): link an
-         existing vault with its master password once (atomic re-wrap, master
-         password retired, recovery key required), new vaults set up with no
-         master password, one unlock opens account and Passwords, auto-lock
-         and sign-out lock both, another account can't open it, the recovery
-         key still works, backups of linked vaults are archive v2. Migration
-         0012; crypto vectors; 11 UI flows; live run against the local API.
+         existing vault with its master password once, new vaults set up with
+         no master password, one unlock opens account and Passwords, auto-lock
+         and sign-out lock both, backups of linked vaults are archive v2.
    - [ ] Later: release builds keep token + Secret Key in the OS keychain;
-         password reset with the recovery code; QR device approval (step 8).
-         Account-key rotation (step 8) must re-wrap the linked vault key.
-4. [ ] Account website + admin panel (dashboard, users, detail, actions, audit).
-5. [ ] `crates/sync-protocol`; sync server (push/pull, WebSocket, quotas)
-       at `sync.nexdark.com`.
-6. [ ] App sync engine: outbox migration, HLC, per-field LWW, Loro notes,
-       status in the sidebar footer, first sync.
-7. [ ] Dodo Payments plans, checkout, webhooks, trial, grace period (after
-       sync works end to end).
-8. [ ] QR device approval, device list, key rotation on device removal,
-       account deletion.
-9. [ ] Website: Pricing section and `/pricing`, sign-in link, updated privacy.
-10. [ ] Tests: two clients converge, offline edits, deletes, clock skew,
-        tampered blobs rejected, revoked device locked out.
+         password reset with the recovery code; QR device approval.
+         Account-key rotation must re-wrap the linked vault key.
+4. [x] `crates/sync-protocol` and desktop E2EE sync engine (`apps/desktop/src/sync/`,
+       outbox migration `0013_sync.sql`, HLC, per-field LWW, `SyncNow` action).
+5. [ ] Background sync scheduler + WebSocket live push listener + multi-device
+       account-wrapped `vault_key` sync record.
+6. [ ] QR device approval, key rotation on device removal, account deletion.

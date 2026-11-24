@@ -1287,6 +1287,12 @@ fn palette_commands() -> Vec<(CommandItem, Box<dyn Action>)> {
             &["account", "ottero cloud", "profile", "devices", "plan"],
         ),
         cmd(
+            "Sync Ottero Cloud now",
+            Lucide::Cloud,
+            Box::new(crate::actions::SyncNow),
+            &["sync", "cloud", "push", "pull", "backup"],
+        ),
+        cmd(
             "Create Ottero Cloud account",
             Lucide::Cloud,
             Box::new(crate::actions::CreateAccount),
@@ -1694,6 +1700,11 @@ pub fn register_commands(cx: &mut App) {
     });
     cx.on_action(|_: &crate::actions::OpenAccountSettings, cx| {
         with_shell(cx, |s, w, cx| s.open_account(None, w, cx))
+    });
+    cx.on_action(|_: &crate::actions::SyncNow, cx| {
+        with_shell(cx, |s, _, cx| {
+            s.library.update(cx, Library::sync_now);
+        })
     });
     cx.on_action(|_: &crate::actions::CreateAccount, cx| {
         with_shell(cx, |s, w, cx| {

@@ -83,11 +83,11 @@ goes through Library, and late file-dialog results are invalidated by draft
 generations. See [the feature plan](plans/11-developer.md) and
 [security policy](security.md#developer-projects-and-environment-secrets).
 
-## Sync (planned, not built)
+## Sync (optional Ottero Cloud)
 
-Local-first stays the source of truth. A small Rust server (axum) on the
-Oracle VPS via Coolify will store only end-to-end encrypted change blobs.
-The schema already has UUID v7 IDs, `updated_at`, and soft deletes for this.
+Local-first stays the source of truth. The optional Ottero Cloud sync server
+stores only end-to-end encrypted change blobs (`crates/sync-protocol`).
+The schema uses UUID v7 IDs, `updated_at`, and soft deletes for this.
 See `docs/plans/06-sync.md`.
 
 ## Native updates

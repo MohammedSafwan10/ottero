@@ -5,9 +5,12 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
 ## Current state (2026-11-24)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
-  Branch `main`, repo `MohammedSafwan10/ottero`. Version 0.1.3 (released).
+  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.2.0** (tagged `v0.2.0`).
   `scripts/check.sh` passes across all workspace crates and UI integration tests.
-- **Ottero Cloud E2EE Sync (Phases 1–3, implemented + senior-reviewed):**
+  *(Note: keep `HANDOFF.md` strictly about the open-source desktop app; cloud
+  backend, hosting, and pricing/monetization notes belong in the private
+  `ottero-cloud` repo — see `AGENTS.md` rule 13.)*
+- **Desktop E2EE Sync client (implemented + audited):**
   - Shared IO-free protocol crate `crates/sync-protocol` (`Hlc`/`HlcClock`,
     8 collections, separator-safe `item_aad` authenticating `hlc` & `deleted`,
     wire DTOs, 1 MiB blob / 200-item / 8 MiB batch limits, WS notices).
@@ -19,23 +22,18 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
     (adopts server-authoritative keys on `PUT /v1/sync/keys` race, byte-budgeted
     push batching, FK-ordered `apply_decrypted_page` before persisting `last_pull_seq`,
     `Zeroizing<String>` payloads, `apply_task` tombstone resurrection guard &
-    `recurrence` sync, `VaultSession::reload_if_unlocked`), live Sync status in
-    Settings → Account.
-  - Standalone Rust sync server (`/Users/admin/saf/ottero-cloud/sync`): Axum 0.8 +
-    SQLx Postgres (`0001_init.sql` with scoped `UNIQUE (account_id, change_id)`),
-    bounded SHA-256-keyed auth cache, incremental post-dedup quota enforcement,
-    HLC drift check, 12 MiB push / 64 KiB keys body limits, bounded WS `Hub`
-    with backpressure eviction & non-root `Dockerfile`.
-  - Codebase modularization: split `apps/desktop/src/library.rs` (2,546 lines)
-    into `apps/desktop/src/library/` (9 domain files) and `apps/desktop/tests/ui.rs`
-    (5,806 lines) into `apps/desktop/tests/ui/` (8 test modules).
-  - Dual senior security audits completed and P0/P1 fixes landed across `ottero`,
-    `ottero-cloud/sync`, and `ottero-cloud/api` (staff cookie + dummy Authorization
-    expiry bypass, `0o644` Vault Emergency Kit & archive permissions, CSV export
-    PG connection leak, `/api/kdf` rate-limit map eviction, `user.delete` audit
-    order, `VaultSession` stuck-unlocking recovery, `end_account_session` sync
-    cleanup, `envelope::seal` zeroizing buffer).
-  - Billing plan switched to **Dodo Payments (Merchant of Record)** for Phase 4.
+    `recurrence` sync, `VaultSession::reload_if_unlocked`), non-blocking async
+    `Library::sync_now` + `SyncNow` action + "Sync now" & hosted billing portal
+    actions in Settings → Account.
+  - Codebase modularization: split `apps/desktop/src/library.rs` into
+    `apps/desktop/src/library/` (9 domain files), `apps/desktop/tests/ui.rs`
+    into `apps/desktop/tests/ui/` (8 test modules), and
+    `apps/desktop/src/views/account.rs` into `apps/desktop/src/views/account/`
+    (5 files).
+  - Desktop security hardening: `0o600` atomic writes for Emergency Kit & vault
+    archives, `VaultSession` stuck-unlocking recovery, `end_account_session`
+    sync cleanup, `PasswordsView.recovery` cleared on lock, `envelope::seal`
+    zeroizing buffer.
 - **Passwords under the Ottero account (ADR 0014, done):**
   signed in, Passwords opens with the account. An existing vault asks for
   its master password once ("Use your Ottero account", or Settings →
@@ -120,23 +118,15 @@ self-review: account-key rotation (plan 06 step 8) must re-wrap the vault.
 *(Idle and sleep auto-lock for an open account key without a vault was fixed
 and tested on 2026-11-24.)*
 
-**Latest account review (2026-11-17):** original unsafe routes now return 404;
-late-result guards/regressions are in place. New confirmed findings are in
-`/Users/admin/saf/ottero-cloud/docs/reviews/TWO-STEP-REVIEW-2026-11-17.md`:
-P1 older password-only sessions inherit admin access when another session enables
-2FA; P2 Emergency Kit overwrite retains an existing 0644 file's broad mode.
-Full local gate passes 410 tests (92 UI); API typecheck and 20 integration tests
-pass. Both findings were reproduced locally without real data/accounts/mail.
-No implementation fixes applied in this review; add regressions and fix them.
+**Next steps (desktop app):**
 
-**Ottero Cloud (plan 06):**
-
-1. Push the account and two-step commits; owner review of Settings → Account
-   (scan the QR code with a real phone app once; not automated here).
-2. Release builds: move token + Secret Key from `account.json` to the OS
-   keychain once Developer ID signing exists (security.md).
-3. Password reset with the recovery code (server route + app flow), then the
-   vault under the account key, then sync (steps 6–7).
+1. Automatic background sync scheduler + WebSocket live push listener in
+   `apps/desktop/src/sync/`.
+2. Multi-device account-wrapped `vault_key` sync record (`vault_meta`) so
+   synced Passwords decrypt cleanly on a second device.
+3. Release builds: store session token + Secret Key in the OS keychain once
+   Developer ID signing exists (`docs/security.md`); add recovery-code
+   password reset and QR device approval.
 
 **Ottero rename follow-ups (before releasing 0.1.3):**
 
@@ -991,7 +981,6 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
   ⌘⇧L / title-bar button toggles it. Tested headless and with real keystrokes.
 - Row menus reorganized (submenus show current value, icons, right-click = same menu).
 - `[[` completion highlights exactly the typed prefix.
-- Git identity: global `Mohammed Safwan <itzmesafwan1@gmail.com>`.
 
 ### 2026-11-08: Links, autocomplete, task detail
 

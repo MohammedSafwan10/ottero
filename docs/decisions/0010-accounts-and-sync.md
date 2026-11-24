@@ -4,10 +4,10 @@ Status: accepted (2026-11-17).
 
 ## Context
 
-Ottero Cloud adds paid, optional sync. The owner wants a custom sign-up/sign-in
-inside the app (no Google/Apple sign-in for now), a web admin panel to manage
-users and plans, Dodo Payments billing (Merchant of Record) and Brevo email. Data must stay end-to-end
-encrypted. Plan: `docs/plans/06-sync.md`.
+Ottero Cloud adds paid, optional sync. Sign-up and sign-in happen natively
+inside the app (no third-party OAuth required), backed by a hosted account API,
+external subscription billing, and transactional email. Data must stay
+end-to-end encrypted. Plan: `docs/plans/06-sync.md`.
 
 ## Decision
 
@@ -31,7 +31,7 @@ encrypted. Plan: `docs/plans/06-sync.md`.
    hybrid logical clock for records; Loro CRDT for note bodies; WebSocket
    change notices. Hosted sync engines that need plaintext are excluded.
 5. **Entitlements** in one provider-agnostic table checked by the sync server;
-   Dodo Payments webhooks, owner grants and the owner account all write to it.
+   billing webhooks and manual grants write to it.
 
 ## Consequences
 
