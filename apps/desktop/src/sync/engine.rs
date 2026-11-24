@@ -9,8 +9,9 @@ use ottero_crypto::sync::{
 use ottero_crypto::{SecretKey, Zeroizing};
 use ottero_storage::{Store, WrappedCollectionKey};
 use ottero_sync_protocol::{
-    ChangeId, Collection, DEFAULT_PULL_LIMIT, Hlc, HlcClock, MAX_PUSH_BATCH, PROTOCOL_VERSION,
-    PullRequest, PushChange, PushRequest, QuotaUsage, decode_blob, encode_blob, item_aad,
+    ChangeId, Collection, CollectionKeyWire, DEFAULT_PULL_LIMIT, Hlc, HlcClock, MAX_PUSH_BATCH,
+    PROTOCOL_VERSION, PullRequest, PushChange, PushRequest, PutKeysRequest, QuotaUsage,
+    decode_blob, encode_blob, item_aad,
 };
 
 use crate::sync::client::{SyncClient, SyncClientError};
@@ -37,6 +38,80 @@ pub struct SyncCycleReport {
     pub latest_seq: i64,
     pub quota: QuotaUsage,
     pub decrypted: Vec<DecryptedChange>,
+}
+
+/// Synchronizes wrapped per-collection keys with the server:
+/// 1. Pulls any existing wrapped keys from the server and saves them locally.
+/// 2. Generates + wraps any collections not yet present on the server or locally.
+/// 3. Uploads newly created wrapped keys so other devices can unwrap them.
+pub fn sync_collection_keys(
+    store: &Store,
+    client: &SyncClient,
+    bearer_token: &str,
+    account_key: &SecretKey,
+    now: Timestamp,
+) -> Result<HashMap<Collection, SecretKey>, SyncClientError> {
+    let remote = client.get_keys(bearer_token)?;
+    let mut keys = HashMap::with_capacity(Collection::ALL.len());
+
+    // First adopt server's wrapped keys (authoritative across devices).
+    for rk in &remote.keys {
+        let wrapped_bytes = decode_blob(&rk.wrapped_key_b64)?;
+        let opened = unwrap_collection_key(account_key, rk.collection.code(), &wrapped_bytes)?;
+        store.save_sync_collection_key(&WrappedCollectionKey {
+            collection: rk.collection,
+            wrapped_key: wrapped_bytes,
+            key_version: rk.key_version,
+            updated_at: now,
+        })?;
+        keys.insert(rk.collection, opened);
+    }
+
+    // Load any remaining local keys and generate any completely missing ones.
+    let mut to_upload = Vec::new();
+    for local in store.sync_collection_keys()? {
+        if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(local.collection) {
+            let opened =
+                unwrap_collection_key(account_key, local.collection.code(), &local.wrapped_key)?;
+            to_upload.push(CollectionKeyWire {
+                collection: local.collection,
+                wrapped_key_b64: encode_blob(&local.wrapped_key),
+                key_version: local.key_version,
+            });
+            slot.insert(opened);
+        }
+    }
+
+    for collection in Collection::ALL {
+        if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(collection) {
+            let fresh = SecretKey::generate()?;
+            let wrapped = wrap_collection_key(account_key, collection.code(), &fresh)?;
+            store.save_sync_collection_key(&WrappedCollectionKey {
+                collection,
+                wrapped_key: wrapped.clone(),
+                key_version: 1,
+                updated_at: now,
+            })?;
+            to_upload.push(CollectionKeyWire {
+                collection,
+                wrapped_key_b64: encode_blob(&wrapped),
+                key_version: 1,
+            });
+            slot.insert(fresh);
+        }
+    }
+
+    if !to_upload.is_empty() {
+        let _ = client.put_keys(
+            bearer_token,
+            &PutKeysRequest {
+                protocol: PROTOCOL_VERSION,
+                keys: to_upload,
+            },
+        )?;
+    }
+
+    Ok(keys)
 }
 
 /// Loads all wrapped collection keys from `store` and generates+wraps any
@@ -122,7 +197,7 @@ pub fn sync_once(
     account_key: &SecretKey,
     now: Timestamp,
 ) -> Result<SyncCycleReport, SyncClientError> {
-    let keys = ensure_collection_keys(store, account_key, now)?;
+    let keys = sync_collection_keys(store, client, bearer_token, account_key, now)?;
     let mut state = store.sync_state()?;
     state.account_id = account_id.to_owned();
     state.device_id = device_id.to_owned();

@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use ottero_sync_protocol::{
-    PullRequest, PullResponse, PushRequest, PushResponse, SyncErrorCode, SyncErrorResponse,
+    KeysResponse, PullRequest, PullResponse, PushRequest, PushResponse, PutKeysRequest,
+    SyncErrorCode, SyncErrorResponse,
 };
 use thiserror::Error;
 use url::Url;
@@ -90,6 +91,36 @@ impl SyncClient {
             return Self::new(url.trim());
         }
         Self::new(DEFAULT_SYNC_URL)
+    }
+
+    pub fn get_keys(&self, bearer_token: &str) -> Result<KeysResponse, SyncClientError> {
+        let url = format!("{}/v1/sync/keys", self.base_url);
+        let mut resp = self
+            .agent
+            .get(&url)
+            .header("Authorization", &format!("Bearer {bearer_token}"))
+            .call()
+            .map_err(|err| SyncClientError::Network(err.to_string()))?;
+        parse_json_response(&mut resp)
+    }
+
+    pub fn put_keys(
+        &self,
+        bearer_token: &str,
+        req: &PutKeysRequest,
+    ) -> Result<KeysResponse, SyncClientError> {
+        req.validate()?;
+        let url = format!("{}/v1/sync/keys", self.base_url);
+        let body =
+            serde_json::to_vec(req).map_err(|err| SyncClientError::Decode(err.to_string()))?;
+        let mut resp = self
+            .agent
+            .put(&url)
+            .header("Authorization", &format!("Bearer {bearer_token}"))
+            .header("Content-Type", "application/json")
+            .send(&body)
+            .map_err(|err| SyncClientError::Network(err.to_string()))?;
+        parse_json_response(&mut resp)
     }
 
     pub fn push(

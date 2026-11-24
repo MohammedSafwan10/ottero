@@ -73,6 +73,65 @@ pub fn decode_blob(blob_b64: &str) -> ProtocolResult<Vec<u8>> {
     Ok(decoded)
 }
 
+/// Wrapped per-collection encryption key exchanged via `/v1/sync/keys`.
+///
+/// The server stores only ciphertext wrapped under `account_key` and never
+/// sees raw collection keys.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectionKeyWire {
+    pub collection: Collection,
+    /// Base64url (no pad) ciphertext from `ottero_crypto::sync::wrap_collection_key`.
+    pub wrapped_key_b64: String,
+    pub key_version: u32,
+}
+
+impl CollectionKeyWire {
+    pub fn validate(&self) -> ProtocolResult<()> {
+        if self.key_version == 0 {
+            return Err(ProtocolError::InvalidIdentifier("key_version"));
+        }
+        let decoded = decode_blob(&self.wrapped_key_b64)?;
+        if decoded.len() > 256 {
+            return Err(ProtocolError::InvalidBlobSize { max: 256 });
+        }
+        Ok(())
+    }
+}
+
+/// Request to upload wrapped collection keys (`PUT /v1/sync/keys`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PutKeysRequest {
+    pub protocol: u16,
+    pub keys: Vec<CollectionKeyWire>,
+}
+
+impl PutKeysRequest {
+    pub fn validate(&self) -> ProtocolResult<()> {
+        if self.protocol != PROTOCOL_VERSION {
+            return Err(ProtocolError::UnsupportedProtocol(self.protocol));
+        }
+        if self.keys.is_empty() || self.keys.len() > Collection::ALL.len() {
+            return Err(ProtocolError::InvalidBatchSize {
+                max: Collection::ALL.len(),
+            });
+        }
+        let mut seen = HashSet::with_capacity(self.keys.len());
+        for k in &self.keys {
+            if !seen.insert(k.collection) {
+                return Err(ProtocolError::DuplicateChangeId);
+            }
+            k.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Response to `GET /v1/sync/keys` and `PUT /v1/sync/keys`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeysResponse {
+    pub keys: Vec<CollectionKeyWire>,
+}
+
 /// One encrypted change uploaded by a client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PushChange {

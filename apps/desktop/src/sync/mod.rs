@@ -5,10 +5,12 @@ pub mod engine;
 pub mod record;
 
 pub use client::{DEFAULT_SYNC_URL, SyncClient, SyncClientError};
-pub use engine::{DecryptedChange, SyncCycleReport, ensure_collection_keys, sync_once};
+pub use engine::{
+    DecryptedChange, SyncCycleReport, ensure_collection_keys, sync_collection_keys, sync_once,
+};
 pub use record::{
     SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload, SyncTaskPayload,
-    apply_decrypted_change, enqueue_local_change,
+    SyncVaultPayload, apply_decrypted_change, enqueue_full_snapshot, enqueue_local_change,
 };
 
 #[cfg(test)]
@@ -22,8 +24,9 @@ mod tests {
     use ottero_crypto::SecretKey;
     use ottero_storage::{OutboxEntry, Store};
     use ottero_sync_protocol::{
-        ChangeId, Collection, Hlc, PullResponse, PushAccepted, PushRequest, PushResponse,
-        QuotaUsage, RemoteChange, SyncErrorCode, SyncErrorResponse, decode_blob, encode_blob,
+        ChangeId, Collection, CollectionKeyWire, Hlc, KeysResponse, PullResponse, PushAccepted,
+        PushRequest, PushResponse, PutKeysRequest, QuotaUsage, RemoteChange, SyncErrorCode,
+        SyncErrorResponse, decode_blob, encode_blob,
     };
 
     use super::*;
@@ -31,6 +34,7 @@ mod tests {
     #[derive(Default)]
     struct FakeState {
         seq: i64,
+        keys: Vec<CollectionKeyWire>,
         changes: Vec<RemoteChange>,
         expire_cursor_below: i64,
         tamper_next_pull: bool,
@@ -109,7 +113,29 @@ mod tests {
         let method = parts.next().unwrap_or("");
         let target = parts.next().unwrap_or("");
 
-        let (status, json) = if method == "POST" && target == "/v1/sync/push" {
+        let (status, json) = if method == "GET" && target == "/v1/sync/keys" {
+            let st = state.lock().expect("lock");
+            let resp = KeysResponse {
+                keys: st.keys.clone(),
+            };
+            ("200 OK", serde_json::to_vec(&resp).expect("keys resp"))
+        } else if method == "PUT" && target == "/v1/sync/keys" {
+            let req: PutKeysRequest = serde_json::from_slice(body).expect("put keys json");
+            let mut st = state.lock().expect("lock");
+            for k in req.keys {
+                if !st
+                    .keys
+                    .iter()
+                    .any(|existing| existing.collection == k.collection)
+                {
+                    st.keys.push(k);
+                }
+            }
+            let resp = KeysResponse {
+                keys: st.keys.clone(),
+            };
+            ("200 OK", serde_json::to_vec(&resp).expect("put keys resp"))
+        } else if method == "POST" && target == "/v1/sync/push" {
             let req: PushRequest = serde_json::from_slice(body).expect("push json");
             let mut st = state.lock().expect("lock");
             let mut accepted = Vec::new();
@@ -224,13 +250,7 @@ mod tests {
         let mut store_a = Store::open_in_memory().expect("db a");
         let mut store_b = Store::open_in_memory().expect("db b");
 
-        // Provision collection keys on A and share the wrapped keys with B (as the server would).
-        let _keys_a = ensure_collection_keys(&store_a, &account_key, now).expect("keys a");
-        for wrapped in store_a.sync_collection_keys().expect("wrapped") {
-            store_b.save_sync_collection_key(&wrapped).expect("save b");
-        }
-
-        // Device A enqueues a private change.
+        // Device A enqueues a private change; collection keys are exchanged automatically via `/v1/sync/keys`.
         let secret_payload = r#"{"title":"Bank PIN is 4829"}"#;
         let entry = OutboxEntry {
             change_id: ChangeId::new(),

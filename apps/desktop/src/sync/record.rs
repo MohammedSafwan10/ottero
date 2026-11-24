@@ -4,10 +4,10 @@ use ottero_core::event::{exceptions_from_code, exceptions_to_code};
 use ottero_core::{
     Date, DateTime, Event, EventId, EventRecord, FocusSession, FocusSessionId, Habit, HabitId,
     HabitRecord, Note, NoteId, Occasion, Priority, Project, ProjectId, Recurrence, Schedule, Task,
-    TaskId, TaskRecord, TaskStatus, Timestamp,
+    TaskId, TaskRecord, TaskStatus, Timestamp, VaultItemId,
 };
-use ottero_storage::{OutboxEntry, Store};
-use ottero_sync_protocol::{ChangeId, Collection, Hlc, HlcClock};
+use ottero_storage::{OutboxEntry, SealedItem, Store};
+use ottero_sync_protocol::{ChangeId, Collection, Hlc, HlcClock, decode_blob, encode_blob};
 use serde::{Deserialize, Serialize};
 
 use crate::sync::client::SyncClientError;
@@ -179,6 +179,25 @@ impl From<&Habit> for SyncHabitPayload {
     }
 }
 
+/// Wire payload for `Collection::Vault` (v1): carries the already-sealed
+/// vault item ciphertext (`vault_items.blob`), never plaintext secrets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncVaultPayload {
+    pub id: VaultItemId,
+    pub blob_b64: String,
+    pub updated_at: i64,
+}
+
+impl From<&SealedItem> for SyncVaultPayload {
+    fn from(item: &SealedItem) -> Self {
+        Self {
+            id: item.id,
+            blob_b64: encode_blob(&item.blob),
+            updated_at: item.updated_at,
+        }
+    }
+}
+
 /// Enqueues a local change into `sync_outbox`, advances `sync_state.last_hlc`,
 /// and records the winning HLC for `fields` in `sync_field_clocks`.
 #[allow(clippy::too_many_arguments)]
@@ -235,7 +254,8 @@ pub fn apply_decrypted_change(
         Collection::Focus => apply_focus(store, change),
         Collection::Events => apply_event(store, change),
         Collection::Habits => apply_habit(store, change),
-        Collection::Settings | Collection::Vault => Ok(false),
+        Collection::Vault => apply_vault(store, change),
+        Collection::Settings => Ok(false),
     }
 }
 
@@ -509,4 +529,122 @@ fn apply_habit(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
     });
     store.save_habit(&habit)?;
     Ok(true)
+}
+
+fn apply_vault(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    if !store.set_field_clock_if_newer(Collection::Vault, &change.item_id, "record", &change.hlc)? {
+        return Ok(false);
+    }
+    if change.deleted {
+        let id: VaultItemId = change
+            .item_id
+            .parse()
+            .map_err(|_| SyncClientError::Decode("invalid vault item id".into()))?;
+        store.delete_vault_items(&[id])?;
+        return Ok(true);
+    }
+    let p: SyncVaultPayload = serde_json::from_str(&change.payload_json)
+        .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    let blob = decode_blob(&p.blob_b64)?;
+    store.save_vault_items(&[SealedItem {
+        id: p.id,
+        blob,
+        updated_at: p.updated_at,
+    }])?;
+    Ok(true)
+}
+
+/// Enqueues every local record (for first sync or recovery after `410 CursorExpired`).
+pub fn enqueue_full_snapshot(
+    store: &Store,
+    device_id: &str,
+    now: Timestamp,
+) -> Result<usize, SyncClientError> {
+    let mut count = 0usize;
+    for trashed in [false, true] {
+        for summary in store.list_notes(trashed)? {
+            if let Some(note) = store.note(summary.id)? {
+                enqueue_local_change(
+                    store,
+                    device_id,
+                    Collection::Notes,
+                    &note.id().to_string(),
+                    &["record"],
+                    false,
+                    &SyncNotePayload::from(&note),
+                    now,
+                )?;
+                count += 1;
+            }
+        }
+    }
+    for (project, _) in store.projects()? {
+        enqueue_local_change(
+            store,
+            device_id,
+            Collection::Projects,
+            &project.id().to_string(),
+            &["record"],
+            false,
+            &SyncProjectPayload::from(&project),
+            now,
+        )?;
+        count += 1;
+    }
+    for filter in [
+        ottero_storage::TaskFilter::Open,
+        ottero_storage::TaskFilter::Closed,
+        ottero_storage::TaskFilter::Trash,
+    ] {
+        for task in store.list_tasks(filter)? {
+            enqueue_local_change(
+                store,
+                device_id,
+                Collection::Tasks,
+                &task.id().to_string(),
+                &[
+                    "title",
+                    "notes",
+                    "status",
+                    "priority",
+                    "due",
+                    "deleted_at",
+                    "project",
+                ],
+                false,
+                &SyncTaskPayload::from(&task),
+                now,
+            )?;
+            count += 1;
+        }
+    }
+    for archived in [false, true] {
+        for habit in store.habits(archived)? {
+            enqueue_local_change(
+                store,
+                device_id,
+                Collection::Habits,
+                &habit.id().to_string(),
+                &["record"],
+                false,
+                &SyncHabitPayload::from(&habit),
+                now,
+            )?;
+            count += 1;
+        }
+    }
+    for item in store.vault_items()? {
+        enqueue_local_change(
+            store,
+            device_id,
+            Collection::Vault,
+            &item.id.to_string(),
+            &["record"],
+            false,
+            &SyncVaultPayload::from(&item),
+            now,
+        )?;
+        count += 1;
+    }
+    Ok(count)
 }

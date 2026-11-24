@@ -1225,17 +1225,42 @@ impl AccountView {
                 .strftime("%B %-d, %Y")
                 .to_string()
         });
+        let lib = self.library.read(cx);
+        let pending = lib.pending_sync_count();
+        let sync_state = lib.sync_state().ok();
+        let (sync_value, sync_detail): (SharedString, SharedString) =
+            if sync_state.as_ref().is_some_and(|s| s.needs_full_resync) {
+                (
+                    "Resync needed".into(),
+                    "Your cursor expired; local data will re-upload on the next sync.".into(),
+                )
+            } else if pending > 0 {
+                let word = if pending == 1 { "change" } else { "changes" };
+                (
+                    format!("{pending} pending").into(),
+                    format!("{pending} encrypted {word} queued for upload.").into(),
+                )
+            } else if sync_state
+                .as_ref()
+                .is_some_and(|s| s.last_synced_at.is_some())
+            {
+                (
+                    "Up to date".into(),
+                    "All encrypted changes are synced with Ottero Cloud.".into(),
+                )
+            } else {
+                (
+                    "Ready".into(),
+                    "Encrypted changes queue locally and sync when connected.".into(),
+                )
+            };
+
         v_flex()
             .w_full()
             .gap_3()
             .child(info_row("Plan", plan.label().into(), detail.into(), cx))
             .child(divider(cx))
-            .child(info_row(
-                "Sync",
-                "Coming next".into(),
-                "Your data stays on this computer until sync is ready.".into(),
-                cx,
-            ))
+            .child(info_row("Sync", sync_value, sync_detail, cx))
             .into_any_element()
     }
 
