@@ -15,7 +15,7 @@ task, event, habit, vault or project content, and never sees the password.
 | Account API | Hono + Better Auth + PostgreSQL (Node 24) | `account.nexdark.com/api` | `ottero-cloud` (private) |
 | Account and admin web | React + shadcn/ui, same origin as the API | `account.nexdark.com` | `ottero-cloud` |
 | Sync server | Rust axum + sqlx + PostgreSQL, WebSocket | `sync.nexdark.com` | `ottero-cloud` |
-| Payments | Razorpay Subscriptions + webhooks | Razorpay | — |
+| Payments | Dodo Payments (Merchant of Record, subscriptions + webhooks) | Dodo Payments | — |
 | Email | Brevo over SMTP (swap to SES by config) | Brevo | — |
 
 All services run on the existing Coolify server (OCI ARM, 12 GB) with one
@@ -28,7 +28,7 @@ so the open-source client documents exactly what it sends.
 
 Sign-in is a native form in the app, not a web page, because the password is
 also the root of the encryption key and must never leave the device in a form
-that opens data. The browser is used only for billing (Razorpay Checkout) and
+that opens data. The browser is used only for billing (Dodo Payments Checkout) and
 the account/admin website.
 
 ### Key derivation (one password + Secret Key, 1Password model)
@@ -174,15 +174,18 @@ item payload = XChaCha20-Poly1305(collection_key, plaintext,
 - Proposed prices: ₹129/month or ₹999/year (India), $3.99/month or $36/year
   (rest of world), 14-day trial. Final numbers are the owner's call.
 - **Entitlements** table, the one source of truth the sync server checks:
-  `entitlement(user_id, plan, source = razorpay | grant | owner, status,
-  starts_at, ends_at, note, granted_by)`.
-- **Razorpay:** Subscriptions with plans per currency/interval. Upgrade opens
-  `account.nexdark.com/upgrade` (Razorpay Checkout) in the browser; the
-  webhook (`subscription.activated | charged | pending | halted | cancelled`),
-  verified by its HMAC signature and stored idempotently by event ID, updates
-  the entitlement; the app picks it up on its next token refresh. Payment
-  failure: 7-day grace period, then sync pauses (read-only cloud copy for 30
-  days, local data untouched).
+  `entitlement(user_id, plan, source = dodo | grant | owner, external_sub_id,
+  status, starts_at, ends_at, note, granted_by)`. Provider-agnostic so another
+  gateway can be added later if needed.
+- **Dodo Payments (Merchant of Record):** Subscriptions with global tax/VAT/GST
+  handled by Dodo. Upgrade opens `account.nexdark.com/upgrade` (Dodo Payments
+  Checkout) in the browser; verified Standard Webhooks events (stored
+  idempotently by event ID) update the entitlement; the app picks it up on its
+  next token refresh. Payment failure: 7-day grace period, then sync pauses
+  (read-only cloud copy for 30 days, local data untouched).
+- **Build order:** wire Dodo Payments **after** encrypted sync works end to end
+  (the `owner` and `grant` entitlement sources let us dogfood and beta-test
+  sync first).
 - Owner account `itzmesafwan1@gmail.com`: role `owner`, entitlement source
   `owner`, never expires.
 
@@ -196,10 +199,10 @@ Roles: `owner` (everything), `admin` (no role changes, no deletions),
 - **Users:** search by email/name/ID; filter by plan, status (active,
   trial, past due, banned, unverified), sign-up date, last sync, country.
 - **User detail:** profile, verification, 2FA on/off, devices and sessions,
-  storage used, entitlements, Razorpay subscription and invoices, audit
+  storage used, entitlements, Dodo Payments subscription and invoices, audit
   history.
 - **Actions:** grant Cloud free (optionally until a date), revoke Cloud,
-  cancel the Razorpay subscription, block/unblock (signs out every session and
+  cancel the Dodo Payments subscription, block/unblock (signs out every session and
   stops sync), sign out one device, resend verification, delete the account
   (owner only, with a typed confirmation).
 - **Never available:** reading user content (it is encrypted), impersonating
@@ -256,11 +259,12 @@ Roles: `owner` (everything), `admin` (no role changes, no deletions),
          password reset with the recovery code; QR device approval (step 8).
          Account-key rotation (step 8) must re-wrap the linked vault key.
 4. [ ] Account website + admin panel (dashboard, users, detail, actions, audit).
-5. [ ] Razorpay plans, checkout, webhooks, trial, grace period.
-6. [ ] `crates/sync-protocol`; sync server (push/pull, WebSocket, quotas)
+5. [ ] `crates/sync-protocol`; sync server (push/pull, WebSocket, quotas)
        at `sync.nexdark.com`.
-7. [ ] App sync engine: outbox migration, HLC, per-field LWW, Loro notes,
+6. [ ] App sync engine: outbox migration, HLC, per-field LWW, Loro notes,
        status in the sidebar footer, first sync.
+7. [ ] Dodo Payments plans, checkout, webhooks, trial, grace period (after
+       sync works end to end).
 8. [ ] QR device approval, device list, key rotation on device removal,
        account deletion.
 9. [ ] Website: Pricing section and `/pricing`, sign-in link, updated privacy.
