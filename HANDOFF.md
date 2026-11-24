@@ -197,6 +197,16 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
 
 ## Log
 
+### 2026-11-24: Events & Habits sync payloads + sign-out sync cleanup
+
+- Extended `apps/desktop/src/sync/record.rs` with `SyncEventPayload` and
+  `SyncHabitPayload` (reusing `Recurrence`, `Occasion`, `Exception`, and
+  `Schedule` canonical codes) plus `apply_event` / `apply_habit`.
+- Wired `Events` and `Habits` mutations in `Library` into `sync_outbox`,
+  emitted `EventsChanged`/`HabitsChanged` in `run_sync_once`, and cleared local
+  sync state (`clear_sync_state`) on `account_sign_out` (tested in `ui.rs`).
+- Verified with `./scripts/check.sh`.
+
 ### 2026-11-24: Library outbox hooks & `run_sync_once`
 
 - Wired `Library::record_sync` into Note, Task, Project, and Focus write/delete

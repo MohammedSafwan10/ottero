@@ -302,6 +302,12 @@ impl Library {
         Ok(self.store.sync_state()?)
     }
 
+    pub(crate) fn clear_sync_state(&mut self) {
+        if let Err(err) = self.store.clear_sync_state() {
+            eprintln!("ottero: couldn't clear sync state: {err:#}");
+        }
+    }
+
     fn sync_device_id(&self) -> Result<String> {
         let mut state = self.store.sync_state()?;
         if state.device_id.is_empty() {
@@ -373,6 +379,8 @@ impl Library {
         )?;
         let mut notes_changed = false;
         let mut tasks_changed = false;
+        let mut events_changed = false;
+        let mut habits_changed = false;
         let mut focus_changed = false;
         for ch in &report.decrypted {
             if crate::sync::apply_decrypted_change(&mut self.store, ch)? {
@@ -380,6 +388,8 @@ impl Library {
                     ottero_sync_protocol::Collection::Notes => notes_changed = true,
                     ottero_sync_protocol::Collection::Tasks
                     | ottero_sync_protocol::Collection::Projects => tasks_changed = true,
+                    ottero_sync_protocol::Collection::Events => events_changed = true,
+                    ottero_sync_protocol::Collection::Habits => habits_changed = true,
                     ottero_sync_protocol::Collection::Focus => focus_changed = true,
                     _ => {}
                 }
@@ -390,6 +400,12 @@ impl Library {
         }
         if tasks_changed {
             cx.emit(LibraryEvent::TasksChanged);
+        }
+        if events_changed {
+            cx.emit(LibraryEvent::EventsChanged);
+        }
+        if habits_changed {
+            cx.emit(LibraryEvent::HabitsChanged);
         }
         if focus_changed {
             cx.emit(LibraryEvent::FocusChanged);
@@ -1369,6 +1385,13 @@ impl Library {
         self.store
             .delete_event_permanently(id)
             .context("Couldn't delete the event")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Events,
+            &id.to_string(),
+            &["record"],
+            true,
+            &serde_json::json!({}),
+        );
         cx.emit(LibraryEvent::EventsChanged);
         Ok(())
     }
@@ -1394,6 +1417,13 @@ impl Library {
         self.store
             .save_event(&event)
             .context("Couldn't save the event")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Events,
+            &event.id().to_string(),
+            &["record"],
+            false,
+            &crate::sync::SyncEventPayload::from(&event),
+        );
         cx.emit(LibraryEvent::EventsChanged);
         Ok(())
     }
@@ -1412,6 +1442,13 @@ impl Library {
         self.store
             .save_event(&event)
             .context("Couldn't save the event")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Events,
+            &event.id().to_string(),
+            &["record"],
+            false,
+            &crate::sync::SyncEventPayload::from(&event),
+        );
         cx.emit(LibraryEvent::EventsChanged);
         Ok(())
     }
@@ -2289,6 +2326,13 @@ impl Library {
     /// Deletes a habit and its whole history (callers confirm first).
     pub fn delete_habit(&mut self, id: HabitId, cx: &mut Context<Self>) -> Result<()> {
         self.store.delete_habit(id)?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Habits,
+            &id.to_string(),
+            &["record"],
+            true,
+            &serde_json::json!({}),
+        );
         cx.emit(LibraryEvent::HabitsChanged);
         Ok(())
     }
@@ -2315,6 +2359,13 @@ impl Library {
         self.store
             .save_habit(&habit)
             .context("Couldn't save the habit")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Habits,
+            &habit.id().to_string(),
+            &["record"],
+            false,
+            &crate::sync::SyncHabitPayload::from(&habit),
+        );
         cx.emit(LibraryEvent::HabitsChanged);
         Ok(())
     }

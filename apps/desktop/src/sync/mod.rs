@@ -7,8 +7,8 @@ pub mod record;
 pub use client::{DEFAULT_SYNC_URL, SyncClient, SyncClientError};
 pub use engine::{DecryptedChange, SyncCycleReport, ensure_collection_keys, sync_once};
 pub use record::{
-    SyncNotePayload, SyncProjectPayload, SyncTaskPayload, apply_decrypted_change,
-    enqueue_local_change,
+    SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload, SyncTaskPayload,
+    apply_decrypted_change, enqueue_local_change,
 };
 
 #[cfg(test)]

@@ -5793,4 +5793,14 @@ fn signed_in_library_mutations_enqueue_sync_outbox_while_local_only_does_not(
         3,
         "signed-in mutations should enqueue into sync_outbox"
     );
+
+    // 3. Signing out clears local sync state and outbox so another account never inherits it.
+    cx.update(|cx| {
+        lib.update(cx, |l, cx| l.account_sign_out(cx).expect("sign out"));
+    });
+    assert_eq!(
+        cx.read(|cx| lib.read(cx).pending_sync_count()),
+        0,
+        "sign-out must clear sync_outbox"
+    );
 }

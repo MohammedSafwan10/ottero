@@ -1,8 +1,10 @@
 //! Domain record serialization, outbox enqueuing, and per-field LWW remote apply.
 
+use ottero_core::event::{exceptions_from_code, exceptions_to_code};
 use ottero_core::{
-    Date, FocusSession, FocusSessionId, Note, NoteId, Priority, Project, ProjectId, Task, TaskId,
-    TaskRecord, TaskStatus, Timestamp,
+    Date, DateTime, Event, EventId, EventRecord, FocusSession, FocusSessionId, Habit, HabitId,
+    HabitRecord, Note, NoteId, Occasion, Priority, Project, ProjectId, Recurrence, Schedule, Task,
+    TaskId, TaskRecord, TaskStatus, Timestamp,
 };
 use ottero_storage::{OutboxEntry, Store};
 use ottero_sync_protocol::{ChangeId, Collection, Hlc, HlcClock};
@@ -109,6 +111,74 @@ impl From<&Project> for SyncProjectPayload {
     }
 }
 
+/// Wire payload for `Collection::Events` (v1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncEventPayload {
+    pub id: EventId,
+    pub title: String,
+    pub notes: String,
+    pub location: String,
+    pub all_day: bool,
+    pub start: DateTime,
+    pub end: DateTime,
+    pub recurrence: Option<String>,
+    pub until: Option<Date>,
+    pub occasion: Option<String>,
+    pub exceptions: String,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub deleted_at: Option<Timestamp>,
+}
+
+impl From<&Event> for SyncEventPayload {
+    fn from(e: &Event) -> Self {
+        let r = e.to_record();
+        Self {
+            id: r.id,
+            title: r.title,
+            notes: r.notes,
+            location: r.location,
+            all_day: r.all_day,
+            start: r.start,
+            end: r.end,
+            recurrence: r.recurrence.map(|x| x.to_code().to_owned()),
+            until: r.until,
+            occasion: r.occasion.map(Occasion::to_code),
+            exceptions: exceptions_to_code(&r.exceptions).unwrap_or_default(),
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            deleted_at: r.deleted_at,
+        }
+    }
+}
+
+/// Wire payload for `Collection::Habits` (v1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncHabitPayload {
+    pub id: HabitId,
+    pub name: String,
+    pub schedule: String,
+    pub target: u16,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub archived_at: Option<Timestamp>,
+}
+
+impl From<&Habit> for SyncHabitPayload {
+    fn from(h: &Habit) -> Self {
+        let r = h.to_record();
+        Self {
+            id: r.id,
+            name: r.name,
+            schedule: r.schedule.to_code(),
+            target: r.target,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            archived_at: r.archived_at,
+        }
+    }
+}
+
 /// Enqueues a local change into `sync_outbox`, advances `sync_state.last_hlc`,
 /// and records the winning HLC for `fields` in `sync_field_clocks`.
 #[allow(clippy::too_many_arguments)]
@@ -163,9 +233,9 @@ pub fn apply_decrypted_change(
         Collection::Tasks => apply_task(store, change),
         Collection::Projects => apply_project(store, change),
         Collection::Focus => apply_focus(store, change),
-        Collection::Events | Collection::Habits | Collection::Settings | Collection::Vault => {
-            Ok(false)
-        }
+        Collection::Events => apply_event(store, change),
+        Collection::Habits => apply_habit(store, change),
+        Collection::Settings | Collection::Vault => Ok(false),
     }
 }
 
@@ -365,5 +435,78 @@ fn apply_focus(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
     let session: FocusSession = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
     store.record_focus_session(&session)?;
+    Ok(true)
+}
+
+fn apply_event(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    if !store.set_field_clock_if_newer(
+        Collection::Events,
+        &change.item_id,
+        "record",
+        &change.hlc,
+    )? {
+        return Ok(false);
+    }
+    if change.deleted {
+        let id: EventId = change
+            .item_id
+            .parse()
+            .map_err(|_| SyncClientError::Decode("invalid event id".into()))?;
+        store.delete_event_permanently(id)?;
+        return Ok(true);
+    }
+    let p: SyncEventPayload = serde_json::from_str(&change.payload_json)
+        .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    let event = Event::from_record(EventRecord {
+        id: p.id,
+        title: p.title,
+        notes: p.notes,
+        location: p.location,
+        all_day: p.all_day,
+        start: p.start,
+        end: p.end,
+        recurrence: p.recurrence.as_deref().and_then(Recurrence::from_code),
+        until: p.until,
+        occasion: p.occasion.as_deref().and_then(Occasion::from_code),
+        exceptions: exceptions_from_code(&p.exceptions),
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        deleted_at: p.deleted_at,
+    });
+    store.save_event(&event)?;
+    Ok(true)
+}
+
+fn apply_habit(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    if !store.set_field_clock_if_newer(
+        Collection::Habits,
+        &change.item_id,
+        "record",
+        &change.hlc,
+    )? {
+        return Ok(false);
+    }
+    if change.deleted {
+        let id: HabitId = change
+            .item_id
+            .parse()
+            .map_err(|_| SyncClientError::Decode("invalid habit id".into()))?;
+        store.delete_habit(id)?;
+        return Ok(true);
+    }
+    let p: SyncHabitPayload = serde_json::from_str(&change.payload_json)
+        .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    let schedule = Schedule::from_code(&p.schedule)
+        .ok_or_else(|| SyncClientError::Decode("invalid habit schedule".into()))?;
+    let habit = Habit::from_record(HabitRecord {
+        id: p.id,
+        name: p.name,
+        schedule,
+        target: p.target,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        archived_at: p.archived_at,
+    });
+    store.save_habit(&habit)?;
     Ok(true)
 }

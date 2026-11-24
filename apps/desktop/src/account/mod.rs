@@ -1043,6 +1043,7 @@ impl Library {
         cx.emit(LibraryEvent::AccountChanged);
         // Passwords locks at once; a linked vault reopens when this account signs in again.
         self.account_key_closed(cx);
+        self.clear_sync_state();
         saved
     }
 
