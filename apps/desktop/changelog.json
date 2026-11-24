@@ -1,5 +1,29 @@
 [
   {
+    "version": "0.2.1",
+    "date": "2026-11-25",
+    "title": "Automatic Sync and Seamless Cloud Passwords",
+    "summary": "Real-time automatic background sync across devices and one-step Passwords setup for Ottero Cloud accounts.",
+    "sections": [
+      {
+        "title": "New",
+        "emoji": "✨",
+        "items": [
+          "Automatic background sync on sign-in, local edits, window focus, and real-time WebSocket push notices across devices.",
+          "Multi-device Passwords sync: signing into your Ottero Cloud account on a new device unlocks your synced vault automatically."
+        ]
+      },
+      {
+        "title": "Improved",
+        "emoji": "◈",
+        "items": [
+          "Cloud-linked Passwords now open immediately with your single Account Emergency Kit — no redundant second recovery key step.",
+          "Encrypted vault backups and archives work seamlessly for Cloud-linked vaults."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.2.0",
     "date": "2026-11-24",
     "title": "Ottero Cloud, 2FA, and Encrypted Sync",

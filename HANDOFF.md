@@ -5,7 +5,7 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
 ## Current state (2026-11-24)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
-  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.2.0** (tagged `v0.2.0`).
+  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.2.1** (tagged `v0.2.1`).
   `scripts/check.sh` passes across all workspace crates and UI integration tests.
   *(Note: keep `HANDOFF.md` strictly about the open-source desktop app; cloud
   backend, hosting, and pricing/monetization notes belong in the private
