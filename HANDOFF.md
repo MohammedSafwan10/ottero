@@ -197,6 +197,21 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
 
 ## Log
 
+### 2026-11-24: `crates/sync-protocol` (Plan 06, step 5 foundation)
+
+- Added IO-free shared crate `crates/sync-protocol` (`ottero-sync-protocol`)
+  for both the desktop client and `sync.nexdark.com`:
+  - `hlc`: `Hlc` + `HlcClock` with 60 s forward-drift guard and fixed-width
+    canonical string formatting whose lexicographical order matches `Ord`.
+  - `collection`: 8 syncable collections (`notes`, `tasks`, `events`, `habits`,
+    `focus`, `projects`, `settings`, `vault`) and separator-safe `item_aad`.
+  - `wire`: versioned `PushRequest`/`PushResponse`, `PullRequest`/`PullResponse`,
+    idempotent `ChangeId`, 1 MiB blob / 200-change / 8 MiB batch limits,
+    `QuotaUsage`, `SyncErrorCode` (incl. `CursorExpired` for 90-day tombstone
+    GC), and WebSocket notices (`SeqAdvanced`, `DeviceRevoked`,
+    `EntitlementChanged`, `Ping`/`Pong`).
+- 8 unit tests; `scripts/check.sh` passes.
+
 ### 2026-11-24: Account key idle & sleep auto-lock
 
 - `Library::account_key_opened` now always calls `self.touch_vault()` so

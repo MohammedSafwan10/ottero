@@ -5,6 +5,7 @@ members = [
     "crates/core",
     "crates/storage",
     "crates/crypto",
+    "crates/sync-protocol",
     "crates/ui",
 ]
 default-members = ["apps/desktop"]
@@ -24,6 +25,7 @@ authors = ["Mohammed Safwan"]
 ottero-core = { path = "crates/core" }
 ottero-storage = { path = "crates/storage" }
 ottero-crypto = { path = "crates/crypto" }
+ottero-sync-protocol = { path = "crates/sync-protocol" }
 ottero-ui = { path = "crates/ui" }
 
 # UI. gpui-kit re-exports a pinned GPUI snapshot (gpui-pre). Never add `gpui` directly.
