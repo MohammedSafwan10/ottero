@@ -7,10 +7,12 @@ pub mod record;
 pub use client::{DEFAULT_SYNC_URL, SyncClient, SyncClientError};
 pub use engine::{
     DecryptedChange, SyncCycleReport, ensure_collection_keys, sync_collection_keys, sync_once,
+    sync_once_with_apply,
 };
 pub use record::{
     SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload, SyncTaskPayload,
-    SyncVaultPayload, apply_decrypted_change, enqueue_full_snapshot, enqueue_local_change,
+    SyncVaultPayload, apply_decrypted_change, apply_decrypted_page, enqueue_full_snapshot,
+    enqueue_local_change,
 };
 
 #[cfg(test)]
@@ -317,7 +319,7 @@ mod tests {
         )
         .expect("sync b");
         assert_eq!(rep_b.pulled, 1);
-        assert_eq!(rep_b.decrypted[0].payload_json, secret_payload);
+        assert_eq!(rep_b.decrypted[0].payload_json.as_str(), secret_payload);
         assert_eq!(store_b.sync_state().expect("state").last_pull_seq, 1);
 
         // CursorExpired (HTTP 410) flags needs_full_resync in SQLite.

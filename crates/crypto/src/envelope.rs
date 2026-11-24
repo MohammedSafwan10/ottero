@@ -36,13 +36,13 @@ pub fn seal(key: &SecretKey, plaintext: &[u8], aad: &[u8]) -> CryptoResult<Vec<u
     out.push(VERSION_1);
     out.extend_from_slice(&nonce);
 
-    let mut buffer = Vec::with_capacity(plaintext.len() + TAG_LEN);
+    let mut buffer = Zeroizing::new(Vec::with_capacity(plaintext.len() + TAG_LEN));
     buffer.extend_from_slice(plaintext);
     cipher(key)?
         .encrypt_in_place(
             &XNonce::from(nonce),
             &full_aad(&out[..HEADER_LEN], aad),
-            &mut buffer,
+            &mut *buffer,
         )
         .map_err(|_| CryptoError::Encrypt)?;
     out.extend_from_slice(&buffer);

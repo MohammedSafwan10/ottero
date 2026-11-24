@@ -27,6 +27,9 @@ pub enum ProtocolError {
     #[error("duplicate change_id in push batch")]
     DuplicateChangeId,
 
+    #[error("duplicate collection in put-keys request")]
+    DuplicateCollection,
+
     #[error("invalid base64url ciphertext blob")]
     InvalidBlobEncoding,
 

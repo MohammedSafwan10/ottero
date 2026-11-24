@@ -429,6 +429,8 @@ impl PasswordsView {
             self.selected = None;
             self.tag = None;
             self._codes_tick = None;
+            self.recovery = None;
+            self.recovery_saved = false;
             self.pane.update(cx, |p, cx| p.discard(window, cx));
             self.search.update(cx, |i, cx| i.set_value("", window, cx));
             cx.notify();

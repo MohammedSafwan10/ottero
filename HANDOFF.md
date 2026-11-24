@@ -2,12 +2,41 @@
 
 Overwrite **Current state** and **Next steps** every session. Append to the log.
 
-## Current state (2026-11-18)
+## Current state (2026-11-24)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
   Branch `main`, repo `MohammedSafwan10/ottero`. Version 0.1.3 (released).
-  `scripts/check.sh` passes (448 tests, 103 UI); CI runs on macOS and Windows.
-- **Passwords under the Ottero account (ADR 0014, done, not pushed):**
+  `scripts/check.sh` passes across all workspace crates and UI integration tests.
+- **Ottero Cloud E2EE Sync (Phases 1–3, implemented + senior-reviewed):**
+  - Shared IO-free protocol crate `crates/sync-protocol` (`Hlc`/`HlcClock`,
+    8 collections, separator-safe `item_aad` authenticating `hlc` & `deleted`,
+    wire DTOs, 1 MiB blob / 200-item / 8 MiB batch limits, WS notices).
+  - Crypto + storage: `crates/crypto/src/sync.rs` (HKDF-SHA256 per-collection
+    key wrapping + AEAD sealing), migration `0013_sync.sql`, `crates/storage/src/sync.rs`
+    (`sync_state`, `sync_collection_keys`, `sync_outbox`, strict per-field LWW
+    `sync_field_clocks`), O(1) `Store::vault_item(id)`.
+  - Desktop sync engine (`apps/desktop/src/sync/`): `SyncClient`, `sync_once_with_apply`
+    (adopts server-authoritative keys on `PUT /v1/sync/keys` race, byte-budgeted
+    push batching, FK-ordered `apply_decrypted_page` before persisting `last_pull_seq`,
+    `Zeroizing<String>` payloads, `apply_task` tombstone resurrection guard &
+    `recurrence` sync, `VaultSession::reload_if_unlocked`), live Sync status in
+    Settings → Account.
+  - Standalone Rust sync server (`/Users/admin/saf/ottero-cloud/sync`): Axum 0.8 +
+    SQLx Postgres (`0001_init.sql` with scoped `UNIQUE (account_id, change_id)`),
+    bounded SHA-256-keyed auth cache, incremental post-dedup quota enforcement,
+    HLC drift check, 12 MiB push / 64 KiB keys body limits, bounded WS `Hub`
+    with backpressure eviction & non-root `Dockerfile`.
+  - Codebase modularization: split `apps/desktop/src/library.rs` (2,546 lines)
+    into `apps/desktop/src/library/` (9 domain files) and `apps/desktop/tests/ui.rs`
+    (5,806 lines) into `apps/desktop/tests/ui/` (8 test modules).
+  - Dual senior security audits completed and P0/P1 fixes landed across `ottero`,
+    `ottero-cloud/sync`, and `ottero-cloud/api` (staff cookie + dummy Authorization
+    expiry bypass, `0o644` Vault Emergency Kit & archive permissions, CSV export
+    PG connection leak, `/api/kdf` rate-limit map eviction, `user.delete` audit
+    order, `VaultSession` stuck-unlocking recovery, `end_account_session` sync
+    cleanup, `envelope::seal` zeroizing buffer).
+  - Billing plan switched to **Dodo Payments (Merchant of Record)** for Phase 4.
+- **Passwords under the Ottero account (ADR 0014, done):**
   signed in, Passwords opens with the account. An existing vault asks for
   its master password once ("Use your Ottero account", or Settings →
   Privacy & data → Unlock with → Use Ottero account…, or the palette); the

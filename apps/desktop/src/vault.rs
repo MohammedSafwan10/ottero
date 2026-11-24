@@ -416,7 +416,10 @@ impl VaultSession {
         self.transition(LockEvent::StartUnlock)?;
         self.opener = opener;
         self.read_opener(&meta);
-        self.load_items(store, &key)?;
+        if let Err(err) = self.load_items(store, &key) {
+            _ = self.transition(LockEvent::Failed);
+            return Err(err);
+        }
         self.key = Some(key);
         self.transition(LockEvent::Unlocked)?;
         Ok(true)
@@ -479,7 +482,10 @@ impl VaultSession {
             self.transition(LockEvent::Failed)?;
             return Ok(false);
         };
-        self.load_items(store, &key)?;
+        if let Err(err) = self.load_items(store, &key) {
+            _ = self.transition(LockEvent::Failed);
+            return Err(err);
+        }
         self.key = Some(key);
         self.transition(LockEvent::Unlocked)?;
         Ok(true)
@@ -655,6 +661,20 @@ impl VaultSession {
             bail!("The vault changed while linking; nothing was changed.");
         }
         Ok(Some(vault_key))
+    }
+
+    /// Re-reads and decrypts items from `store` when unlocked (e.g. after sync).
+    pub fn reload_if_unlocked(&mut self, store: &Store) -> Result<()> {
+        if self.state != LockState::Unlocked {
+            return Ok(());
+        }
+        let Some(ref key) = self.key else {
+            return Ok(());
+        };
+        let mut raw = Zeroizing::new([0u8; SecretKey::LEN]);
+        raw.copy_from_slice(key.expose());
+        let copy = SecretKey::from_bytes(&mut raw);
+        self.load_items(store, &copy)
     }
 
     fn load_items(&mut self, store: &Store, key: &SecretKey) -> Result<()> {
@@ -1033,17 +1053,7 @@ fn write_archive(store: &Store, path: &std::path::Path, now: Timestamp) -> Resul
     let items = store.vault_items()?;
     let file = ArchiveFile::new(&meta, &items, now)?;
     let json = serde_json::to_vec_pretty(&file).context("Couldn't write the archive")?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).context("Couldn't create the archive folder")?;
-    }
-    let tmp = path.with_extension("otvault-tmp");
-    {
-        use std::io::Write as _;
-        let mut f = std::fs::File::create(&tmp).context("Couldn't write the archive")?;
-        f.write_all(&json).context("Couldn't write the archive")?;
-        f.sync_all().context("Couldn't write the archive")?;
-    }
-    std::fs::rename(&tmp, path).context("Couldn't write the archive")?;
+    crate::private_file::write_private(path, &json).context("Couldn't write the archive")?;
     let back = ArchiveFile::read(path)?;
     if back.items.len() != items.len() {
         bail!("The archive didn't save correctly; nothing was changed.");

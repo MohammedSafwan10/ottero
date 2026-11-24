@@ -118,7 +118,7 @@ impl PutKeysRequest {
         let mut seen = HashSet::with_capacity(self.keys.len());
         for k in &self.keys {
             if !seen.insert(k.collection) {
-                return Err(ProtocolError::DuplicateChangeId);
+                return Err(ProtocolError::DuplicateCollection);
             }
             k.validate()?;
         }
@@ -295,6 +295,7 @@ pub enum SyncErrorCode {
     ProtocolMismatch,
     RateLimited,
     ValidationFailed,
+    InternalError,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

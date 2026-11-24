@@ -78,20 +78,34 @@ pub(crate) fn validate_ident(
 }
 
 /// Builds the canonical AEAD associated data (AAD) for a synced item payload:
-/// `ottero-sync-item-v1|{account_id}|{collection}|{item_id}|{schema_version}`.
+/// `ottero-sync-item-v1|{account_id}|{collection}|{item_id}|{schema_version}|{hlc}|{deleted}`.
 ///
-/// Rejects separator characters (`|`) and control bytes in `account_id` or
-/// `item_id` so two distinct items can never share an AAD.
+/// Authenticating `hlc` and `deleted` prevents a compromised server from
+/// replaying an older ciphertext under a newer HLC or forging a tombstone
+/// deletion by flipping `deleted: true` on an existing blob.
+/// Rejects separator characters (`|`) and control bytes in `account_id`,
+/// `item_id`, or `hlc` so two distinct items/versions can never share an AAD.
 pub fn item_aad(
     account_id: &str,
     collection: Collection,
     item_id: &str,
     schema_version: u16,
+    hlc: &str,
+    deleted: bool,
 ) -> ProtocolResult<Vec<u8>> {
     validate_ident(account_id, "account_id", 128)?;
     validate_ident(item_id, "item_id", 128)?;
+    if hlc.is_empty()
+        || hlc.len() > 128
+        || !hlc
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(ProtocolError::InvalidHlc);
+    }
+    let del = u8::from(deleted);
     Ok(format!(
-        "ottero-sync-item-v1|{account_id}|{}|{item_id}|{schema_version}",
+        "ottero-sync-item-v1|{account_id}|{}|{item_id}|{schema_version}|{hlc}|{del}",
         collection.code()
     )
     .into_bytes())
@@ -114,19 +128,44 @@ mod tests {
 
     #[test]
     fn item_aad_is_canonical_and_rejects_separator_injection() {
-        let aad = item_aad("acct_123", Collection::Notes, "0195-note-1", 1).expect("aad");
-        assert_eq!(aad, b"ottero-sync-item-v1|acct_123|notes|0195-note-1|1");
+        let aad = item_aad(
+            "acct_123",
+            Collection::Notes,
+            "0195-note-1",
+            1,
+            "00000001760000000000:0000:dev-1",
+            false,
+        )
+        .expect("aad");
         assert_eq!(
-            item_aad("acct|evil", Collection::Notes, "id", 1),
+            aad,
+            b"ottero-sync-item-v1|acct_123|notes|0195-note-1|1|00000001760000000000:0000:dev-1|0"
+        );
+        let del_aad = item_aad(
+            "acct_123",
+            Collection::Notes,
+            "0195-note-1",
+            1,
+            "00000001760000000000:0000:dev-1",
+            true,
+        )
+        .expect("del aad");
+        assert_ne!(aad, del_aad);
+        assert_eq!(
+            item_aad("acct|evil", Collection::Notes, "id", 1, "hlc", false),
             Err(ProtocolError::InvalidIdentifier("account_id"))
         );
         assert_eq!(
-            item_aad("acct", Collection::Notes, "id|1", 1),
+            item_aad("acct", Collection::Notes, "id|1", 1, "hlc", false),
             Err(ProtocolError::InvalidIdentifier("item_id"))
         );
         assert_eq!(
-            item_aad("acct", Collection::Notes, "", 1),
+            item_aad("acct", Collection::Notes, "", 1, "hlc", false),
             Err(ProtocolError::InvalidIdentifier("item_id"))
+        );
+        assert_eq!(
+            item_aad("acct", Collection::Notes, "id", 1, "hlc|evil", false),
+            Err(ProtocolError::InvalidHlc)
         );
     }
 }

@@ -52,6 +52,8 @@ pub struct SyncTaskPayload {
     pub updated_at: Timestamp,
     pub completed_at: Option<Timestamp>,
     pub deleted_at: Option<Timestamp>,
+    #[serde(default)]
+    pub recurrence: Option<Recurrence>,
     pub parent: Option<TaskId>,
     pub project: Option<ProjectId>,
     /// Fields modified in this change; empty means all fields (full snapshot).
@@ -74,6 +76,7 @@ impl SyncTaskPayload {
             updated_at: r.updated_at,
             completed_at: r.completed_at,
             deleted_at: r.deleted_at,
+            recurrence: r.recurrence,
             parent: r.parent,
             project: r.project,
             changed_fields: changed_fields.iter().map(|s| (*s).to_owned()).collect(),
@@ -240,6 +243,41 @@ pub fn enqueue_local_change(
     Ok(hlc)
 }
 
+/// Applies a full pull page in foreign-key dependency order (`Projects` →
+/// `Tasks` → other collections) so `PRAGMA foreign_keys = ON` never fails on
+/// out-of-order delivery. Returns the list of collections whose local state
+/// changed.
+pub fn apply_decrypted_page(
+    store: &mut Store,
+    changes: &[DecryptedChange],
+) -> Result<Vec<Collection>, SyncClientError> {
+    let mut order: Vec<usize> = (0..changes.len()).collect();
+    order.sort_by_key(|&i| {
+        let c = &changes[i];
+        let rank = match c.collection {
+            Collection::Projects if !c.deleted => 0,
+            Collection::Tasks if !c.deleted => 1,
+            Collection::Notes
+            | Collection::Events
+            | Collection::Habits
+            | Collection::Focus
+            | Collection::Vault
+            | Collection::Settings => 2,
+            Collection::Tasks => 3,
+            Collection::Projects => 4,
+        };
+        (rank, c.seq)
+    });
+    let mut touched = Vec::new();
+    for i in order {
+        let ch = &changes[i];
+        if apply_decrypted_change(store, ch)? {
+            touched.push(ch.collection);
+        }
+    }
+    Ok(touched)
+}
+
 /// Applies one decrypted remote change into `store` using HLC last-writer-wins
 /// (per-field for Tasks, per-record for Notes/Projects/Focus). Returns `true`
 /// if local state changed.
@@ -260,19 +298,22 @@ pub fn apply_decrypted_change(
 }
 
 fn apply_note(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    let id: NoteId = change
+        .item_id
+        .parse()
+        .map_err(|_| SyncClientError::Decode("invalid note id".into()))?;
     if !store.set_field_clock_if_newer(Collection::Notes, &change.item_id, "record", &change.hlc)? {
         return Ok(false);
     }
     if change.deleted {
-        let id: NoteId = change
-            .item_id
-            .parse()
-            .map_err(|_| SyncClientError::Decode("invalid note id".into()))?;
         store.delete_note_permanently(id)?;
         return Ok(true);
     }
     let payload: SyncNotePayload = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if payload.id != id {
+        return Err(SyncClientError::Decode("note payload id mismatch".into()));
+    }
     let note = Note::from_parts(
         payload.id,
         payload.title,
@@ -305,10 +346,21 @@ fn apply_task(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncC
         return Ok(true);
     }
 
+    // Never resurrect a task that was permanently deleted at a newer/equal HLC.
+    if let Some(deleted_hlc) = store.field_clock(Collection::Tasks, &change.item_id, "deleted")?
+        && deleted_hlc >= change.hlc
+    {
+        return Ok(false);
+    }
+
     let remote: SyncTaskPayload = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if remote.id != id {
+        return Err(SyncClientError::Decode("task payload id mismatch".into()));
+    }
 
     let existing = store.task(id)?;
+    let mut changed = existing.is_none();
     let mut rec = existing.map_or_else(
         || TaskRecord {
             id: remote.id,
@@ -321,14 +373,13 @@ fn apply_task(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncC
             updated_at: remote.updated_at,
             completed_at: remote.completed_at,
             deleted_at: remote.deleted_at,
-            recurrence: None,
+            recurrence: remote.recurrence,
             parent: remote.parent,
             project: remote.project,
         },
         |t| t.to_record(),
     );
 
-    let mut changed = store.task(id)?.is_none();
     if remote.includes("title")
         && store.set_field_clock_if_newer(
             Collection::Tasks,
@@ -391,6 +442,17 @@ fn apply_task(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncC
         rec.deleted_at = remote.deleted_at;
         changed = true;
     }
+    if remote.includes("recurrence")
+        && store.set_field_clock_if_newer(
+            Collection::Tasks,
+            &change.item_id,
+            "recurrence",
+            &change.hlc,
+        )?
+    {
+        rec.recurrence = remote.recurrence;
+        changed = true;
+    }
     if remote.includes("project")
         && store.set_field_clock_if_newer(
             Collection::Tasks,
@@ -404,6 +466,17 @@ fn apply_task(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncC
     }
 
     if changed {
+        // Guard optional foreign keys against out-of-order or deleted parents.
+        if let Some(pid) = rec.project
+            && !store.projects()?.iter().any(|(p, _)| p.id() == pid)
+        {
+            rec.project = None;
+        }
+        if let Some(parent_id) = rec.parent
+            && store.task(parent_id)?.is_none()
+        {
+            rec.parent = None;
+        }
         rec.updated_at = rec.updated_at.max(remote.updated_at);
         let merged = Task::from_record(rec);
         store.save_task(&merged)?;
@@ -412,6 +485,10 @@ fn apply_task(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncC
 }
 
 fn apply_project(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    let id: ProjectId = change
+        .item_id
+        .parse()
+        .map_err(|_| SyncClientError::Decode("invalid project id".into()))?;
     if !store.set_field_clock_if_newer(
         Collection::Projects,
         &change.item_id,
@@ -421,15 +498,16 @@ fn apply_project(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sy
         return Ok(false);
     }
     if change.deleted {
-        let id: ProjectId = change
-            .item_id
-            .parse()
-            .map_err(|_| SyncClientError::Decode("invalid project id".into()))?;
         store.delete_project(id)?;
         return Ok(true);
     }
     let payload: SyncProjectPayload = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if payload.id != id {
+        return Err(SyncClientError::Decode(
+            "project payload id mismatch".into(),
+        ));
+    }
     let project = Project::from_parts(
         payload.id,
         payload.name,
@@ -441,24 +519,37 @@ fn apply_project(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sy
 }
 
 fn apply_focus(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    let id: FocusSessionId = change
+        .item_id
+        .parse()
+        .map_err(|_| SyncClientError::Decode("invalid focus session id".into()))?;
     if !store.set_field_clock_if_newer(Collection::Focus, &change.item_id, "record", &change.hlc)? {
         return Ok(false);
     }
     if change.deleted {
-        let id: FocusSessionId = change
-            .item_id
-            .parse()
-            .map_err(|_| SyncClientError::Decode("invalid focus session id".into()))?;
         store.delete_focus_session(id)?;
         return Ok(true);
     }
-    let session: FocusSession = serde_json::from_str(&change.payload_json)
+    let mut session: FocusSession = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if session.id != id {
+        return Err(SyncClientError::Decode("focus payload id mismatch".into()));
+    }
+    // Guard optional task FK against out-of-order or deleted tasks.
+    if let Some(tid) = session.task_id
+        && store.task(tid)?.is_none()
+    {
+        session.task_id = None;
+    }
     store.record_focus_session(&session)?;
     Ok(true)
 }
 
 fn apply_event(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    let id: EventId = change
+        .item_id
+        .parse()
+        .map_err(|_| SyncClientError::Decode("invalid event id".into()))?;
     if !store.set_field_clock_if_newer(
         Collection::Events,
         &change.item_id,
@@ -468,15 +559,14 @@ fn apply_event(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
         return Ok(false);
     }
     if change.deleted {
-        let id: EventId = change
-            .item_id
-            .parse()
-            .map_err(|_| SyncClientError::Decode("invalid event id".into()))?;
         store.delete_event_permanently(id)?;
         return Ok(true);
     }
     let p: SyncEventPayload = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if p.id != id {
+        return Err(SyncClientError::Decode("event payload id mismatch".into()));
+    }
     let event = Event::from_record(EventRecord {
         id: p.id,
         title: p.title,
@@ -498,6 +588,10 @@ fn apply_event(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
 }
 
 fn apply_habit(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    let id: HabitId = change
+        .item_id
+        .parse()
+        .map_err(|_| SyncClientError::Decode("invalid habit id".into()))?;
     if !store.set_field_clock_if_newer(
         Collection::Habits,
         &change.item_id,
@@ -507,15 +601,14 @@ fn apply_habit(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
         return Ok(false);
     }
     if change.deleted {
-        let id: HabitId = change
-            .item_id
-            .parse()
-            .map_err(|_| SyncClientError::Decode("invalid habit id".into()))?;
         store.delete_habit(id)?;
         return Ok(true);
     }
     let p: SyncHabitPayload = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if p.id != id {
+        return Err(SyncClientError::Decode("habit payload id mismatch".into()));
+    }
     let schedule = Schedule::from_code(&p.schedule)
         .ok_or_else(|| SyncClientError::Decode("invalid habit schedule".into()))?;
     let habit = Habit::from_record(HabitRecord {
@@ -532,19 +625,22 @@ fn apply_habit(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
 }
 
 fn apply_vault(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    let id: VaultItemId = change
+        .item_id
+        .parse()
+        .map_err(|_| SyncClientError::Decode("invalid vault item id".into()))?;
     if !store.set_field_clock_if_newer(Collection::Vault, &change.item_id, "record", &change.hlc)? {
         return Ok(false);
     }
     if change.deleted {
-        let id: VaultItemId = change
-            .item_id
-            .parse()
-            .map_err(|_| SyncClientError::Decode("invalid vault item id".into()))?;
         store.delete_vault_items(&[id])?;
         return Ok(true);
     }
     let p: SyncVaultPayload = serde_json::from_str(&change.payload_json)
         .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if p.id != id {
+        return Err(SyncClientError::Decode("vault payload id mismatch".into()));
+    }
     let blob = decode_blob(&p.blob_b64)?;
     store.save_vault_items(&[SealedItem {
         id: p.id,

@@ -100,7 +100,7 @@ fn save_kit(key: String, window: &mut Window, cx: &mut App) {
                 .strftime("%B %-d, %Y")
                 .to_string();
             let kit = recovery::emergency_kit(&key, &created);
-            let written = std::fs::write(&path, kit.as_bytes());
+            let written = crate::private_file::write_private(&path, kit.as_bytes());
             _ = cx.update(|window, cx| match written {
                 Ok(()) => window.push_notification(
                     "Emergency Kit saved. Print it or move it off this computer.",

@@ -1010,8 +1010,11 @@ impl Library {
         session.account_key = None;
         session.sessions.clear();
         session.sessions_loaded = false;
+        session.refresh_error = None;
+        session.forget_flow();
         session.apply(AccountEvent::SessionEnded);
         session.notice = Some(ApiError::SessionEnded.message());
+        self.clear_sync_state();
         cx.emit(LibraryEvent::AccountChanged);
         self.account_key_closed(cx);
     }

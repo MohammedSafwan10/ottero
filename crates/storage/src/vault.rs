@@ -210,6 +210,28 @@ impl Store {
         Ok(LinkOutcome::Linked)
     }
 
+    pub fn vault_item(&self, id: VaultItemId) -> StorageResult<Option<SealedItem>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT id, blob, updated_at FROM vault_items WHERE id = ?1")?;
+        stmt.query_row(params![id.to_string()], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })
+        .optional()?
+        .map(|(id, blob, updated_at)| {
+            Ok(SealedItem {
+                id: VaultItemId::from_uuid(uuid_from_sql(&id, "vault_items.id")?),
+                blob,
+                updated_at,
+            })
+        })
+        .transpose()
+    }
+
     pub fn vault_items(&self) -> StorageResult<Vec<SealedItem>> {
         let mut stmt = self
             .conn
