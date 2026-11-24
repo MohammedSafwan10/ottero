@@ -228,6 +228,19 @@ impl Store {
         Ok(removed)
     }
 
+    /// Removes any queued outbox entries for `(collection, item_id)` (e.g. when
+    /// an empty local vault adopts an authoritative remote `vault-meta`).
+    pub fn delete_pending_sync_item(
+        &self,
+        collection: Collection,
+        item_id: &str,
+    ) -> StorageResult<usize> {
+        Ok(self.conn.execute(
+            "DELETE FROM sync_outbox WHERE collection = ?1 AND item_id = ?2",
+            params![collection.code(), item_id],
+        )?)
+    }
+
     pub fn pending_sync_count(&self) -> StorageResult<u64> {
         let count: i64 = self
             .conn

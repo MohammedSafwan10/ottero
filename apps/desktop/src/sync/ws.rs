@@ -106,7 +106,9 @@ fn run_loop(
         };
         req.headers_mut().insert("Authorization", auth);
 
-        match tungstenite::client::connect_with_config(req, Some(config), 3) {
+        // Never follow redirects (max_redirects = 0) so Authorization: Bearer
+        // can never be forwarded to a different origin or downgraded to ws://.
+        match tungstenite::client::connect_with_config(req, Some(config), 0) {
             Ok((mut socket, _)) => {
                 backoff = INITIAL_BACKOFF;
                 set_read_timeout(socket.get_ref(), Some(READ_TIMEOUT));

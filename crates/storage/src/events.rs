@@ -91,6 +91,17 @@ impl Store {
             .collect()
     }
 
+    /// Every event (active and trashed), for full sync snapshots.
+    pub fn all_events(&self) -> StorageResult<Vec<Event>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!("SELECT {COLUMNS} FROM events"))?;
+        let rows = stmt.query_map([], raw_event)?.collect::<Vec<_>>();
+        rows.into_iter()
+            .map(|row| row.map_err(StorageError::from)?.into_event())
+            .collect()
+    }
+
     /// Trashed events, most recently trashed first.
     pub fn trashed_events(&self) -> StorageResult<Vec<Event>> {
         let mut stmt = self.conn.prepare_cached(&format!(

@@ -39,6 +39,19 @@ impl Store {
         Ok(())
     }
 
+    /// Lists every recorded focus session (for full sync snapshots).
+    pub fn all_focus_sessions(&self) -> StorageResult<Vec<FocusSession>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, task_id, label, kind, planned_secs, actual_secs, started_at, ended_at, completed
+             FROM focus_sessions
+             ORDER BY ended_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([], decode_session)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Lists focus sessions whose `ended_at` falls in `[start, end)`, newest first.
     pub fn focus_sessions_between(
         &self,

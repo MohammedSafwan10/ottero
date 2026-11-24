@@ -361,6 +361,7 @@ pub fn sync_once_with_apply(
         on_page(store, &page_decrypted)?;
         report.decrypted.extend(page_decrypted);
 
+        let prev_seq = state.last_pull_seq;
         state.last_pull_seq = state.last_pull_seq.max(resp.next_seq);
         report.latest_seq = report.latest_seq.max(state.last_pull_seq);
         state.last_synced_at = Some(now);
@@ -369,6 +370,11 @@ pub fn sync_once_with_apply(
 
         if !resp.has_more {
             break;
+        }
+        if resp.next_seq <= prev_seq {
+            return Err(SyncClientError::Decode(
+                "sync pull cursor did not advance".into(),
+            ));
         }
     }
 
@@ -593,10 +599,16 @@ pub fn run_background_sync(
                 payload_json,
             });
         }
+        let prev_cursor = cursor;
         cursor = cursor.max(resp.next_seq);
         pages.push((cursor, page_decrypted));
         if !resp.has_more {
             break;
+        }
+        if resp.next_seq <= prev_cursor {
+            return Err(SyncClientError::Decode(
+                "sync pull cursor did not advance".into(),
+            ));
         }
     }
 

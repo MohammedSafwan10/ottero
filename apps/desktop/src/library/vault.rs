@@ -422,6 +422,7 @@ impl Library {
     /// would make the lock meaningless (ADR 0014). Manual lock, idle,
     /// sleep and "lock in background" all come through here.
     pub fn lock_vault(&mut self, cx: &mut Context<Self>) {
+        self.stop_sync_ws();
         self.lock_vault_only(cx);
         self.lock_account_key(cx);
     }

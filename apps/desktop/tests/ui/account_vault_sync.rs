@@ -575,11 +575,25 @@ fn signed_in_library_mutations_enqueue_sync_outbox_while_local_only_does_not(
         "local-only users must not accumulate sync outbox rows"
     );
 
-    // 2. Signed-in user: Note, Task, and Task updates enqueue automatically.
+    // 2. Signed-in Free user: no outbox rows accumulate without an active Cloud plan.
     let (app, fake) = launch_with_account(cx);
     sign_up_through_the_ui(&app, &fake, cx);
     let lib = library(&app, cx);
-    assert_eq!(cx.read(|cx| lib.read(cx).pending_sync_count()), 0);
+    cx.update(|cx| {
+        lib.update(cx, |l, cx| {
+            l.create_note("Free note", cx).expect("note");
+        });
+    });
+    assert_eq!(
+        cx.read(|cx| lib.read(cx).pending_sync_count()),
+        0,
+        "signed-in Free users must not accumulate unbounded sync_outbox rows"
+    );
+
+    // 3. Signed-in Cloud/Owner user: Note, Task, and Task updates enqueue automatically.
+    fake.grant_owner(ACCOUNT_EMAIL);
+    cx.update(|cx| lib.update(cx, |l, cx| l.refresh_account(cx)));
+    cx.run_until_parked();
 
     cx.update(|cx| {
         lib.update(cx, |l, cx| {
@@ -592,10 +606,10 @@ fn signed_in_library_mutations_enqueue_sync_outbox_while_local_only_does_not(
     assert_eq!(
         cx.read(|cx| lib.read(cx).pending_sync_count()),
         3,
-        "signed-in mutations should enqueue into sync_outbox"
+        "signed-in Cloud mutations should enqueue into sync_outbox"
     );
 
-    // 3. Signing out clears local sync state and outbox so another account never inherits it.
+    // 4. Signing out clears local sync state and outbox so another account never inherits it.
     cx.update(|cx| {
         lib.update(cx, |l, cx| l.account_sign_out(cx).expect("sign out"));
     });

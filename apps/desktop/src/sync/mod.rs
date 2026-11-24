@@ -575,4 +575,114 @@ mod tests {
         assert_eq!(decrypted.fields().title, "GitHub");
         assert_eq!(decrypted.fields().password, "super-secret-42");
     }
+
+    #[test]
+    fn empty_local_vault_with_newer_hlc_adopts_remote_vault_meta_and_decrypts() {
+        use crate::vault::{AccountUnlock, VaultSession};
+        use ottero_core::vault::{ItemFields, ItemKind};
+
+        let server = FakeSyncServer::start();
+        let client = SyncClient::new(&server.url).expect("client");
+        let mut raw = ottero_crypto::Zeroizing::new([0x66u8; SecretKey::LEN]);
+        let account_key = SecretKey::from_bytes(&mut raw);
+        let email = "owner@example.com";
+        let t1 = Timestamp::from_millisecond(1_760_000_000_000).expect("ts1");
+        let t2 = Timestamp::from_millisecond(1_760_000_060_000).expect("ts2");
+
+        // Device A creates vault + login at T1 and pushes.
+        let mut store_a = Store::open_in_memory().expect("store a");
+        let mut vault_a = VaultSession::load(&store_a).expect("load a");
+        vault_a
+            .finish_setup_with_account(&mut store_a, email, &account_key, None, t1)
+            .expect("setup a");
+        let mut fields = ItemFields::new(ItemKind::Login);
+        fields.title = "Stripe".into();
+        fields.password = "prod-secret".into();
+        let item_id = vault_a.create(&mut store_a, &fields, t1).expect("item");
+        enqueue_full_snapshot(&store_a, "dev-a", t1).expect("snap a");
+        sync_once_with_apply(
+            &mut store_a,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-a",
+            &account_key,
+            t1,
+            |store, page| apply_decrypted_page(store, page).map(|_| ()),
+        )
+        .expect("sync a");
+
+        // Device B creates an EMPTY local vault at T2 (newer HLC!) and queues its own vault-meta.
+        let mut store_b = Store::open_in_memory().expect("store b");
+        let mut vault_b = VaultSession::load(&store_b).expect("load b");
+        vault_b
+            .finish_setup_with_account(&mut store_b, email, &account_key, None, t2)
+            .expect("setup b");
+        let meta_b = store_b.vault_meta().expect("meta b").expect("some");
+        let payload_b = SyncVaultMetaPayload::from_meta(&meta_b).expect("payload b");
+        enqueue_local_change(
+            &store_b,
+            "dev-b",
+            Collection::Vault,
+            VAULT_META_SYNC_ID,
+            &["record"],
+            false,
+            &payload_b,
+            t2,
+        )
+        .expect("enqueue b meta");
+
+        // Pull-only / sync on Device B: even though B's empty vault had a newer HLC,
+        // applying A's page must adopt A's vault-meta, drop B's pending empty vault-meta,
+        // and decrypt A's Stripe login cleanly.
+        let r = sync_once_with_apply(
+            &mut store_b,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-b",
+            &account_key,
+            t2,
+            |store, page| apply_decrypted_page(store, page).map(|_| ()),
+        )
+        .expect("sync b");
+        assert!(r.pulled >= 2);
+
+        let mut reloaded_b = VaultSession::load(&store_b).expect("reload b");
+        assert_eq!(
+            reloaded_b
+                .unlock_with_account(&store_b, email, &account_key)
+                .expect("unlock b"),
+            AccountUnlock::Opened
+        );
+        let got = reloaded_b.item(item_id).expect("A's item decrypted on B");
+        assert_eq!(got.fields().title, "Stripe");
+        assert_eq!(got.fields().password, "prod-secret");
+
+        // Device C (fresh install) pulls seq=1 (A's vault-meta), seq=2 (A's item),
+        // AND seq=3 (B's later empty vault-meta): first-writer-wins keeps A's key
+        // and decrypts "Stripe" cleanly on Device C too.
+        let mut store_c = Store::open_in_memory().expect("store c");
+        sync_once_with_apply(
+            &mut store_c,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-c",
+            &account_key,
+            t2,
+            |store, page| apply_decrypted_page(store, page).map(|_| ()),
+        )
+        .expect("sync c");
+        let mut vault_c = VaultSession::load(&store_c).expect("load c");
+        assert_eq!(
+            vault_c
+                .unlock_with_account(&store_c, email, &account_key)
+                .expect("unlock c"),
+            AccountUnlock::Opened
+        );
+        let got_c = vault_c.item(item_id).expect("A's item decrypted on C");
+        assert_eq!(got_c.fields().title, "Stripe");
+        assert_eq!(got_c.fields().password, "prod-secret");
+    }
 }

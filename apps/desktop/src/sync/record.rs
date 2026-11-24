@@ -699,6 +699,7 @@ fn apply_vault_meta(store: &mut Store, change: &DecryptedChange) -> Result<bool,
             "empty vault_meta wrapped key".into(),
         ));
     }
+    let mut adopting_over_empty = false;
     if let Some(existing) = store.vault_meta()? {
         let same_empty_account_vault = existing.master.is_none()
             && existing
@@ -709,14 +710,27 @@ fn apply_vault_meta(store: &mut Store, change: &DecryptedChange) -> Result<bool,
         if !same_empty_account_vault {
             return Ok(false);
         }
+        // First-writer-wins on empty account vaults: only replace with a
+        // strictly older vault header (earliest created_at, then earliest HLC)
+        // so an empty local vault pushed later can never overwrite an earlier
+        // vault header on a third device.
+        let existing_hlc = store.field_clock(Collection::Vault, VAULT_META_SYNC_ID, "record")?;
+        let incoming_is_earlier = p.created_at < existing.created_at
+            || (p.created_at == existing.created_at
+                && existing_hlc.as_ref().is_none_or(|cur| &change.hlc < cur));
+        if !incoming_is_earlier {
+            return Ok(false);
+        }
+        adopting_over_empty = true;
     }
-    if !store.set_field_clock_if_newer(
+    let _ = store.set_field_clock_if_newer(
         Collection::Vault,
         VAULT_META_SYNC_ID,
         "record",
         &change.hlc,
-    )? {
-        return Ok(false);
+    )?;
+    if adopting_over_empty {
+        let _ = store.delete_pending_sync_item(Collection::Vault, VAULT_META_SYNC_ID)?;
     }
     store.save_vault_meta(&VaultMeta {
         version: p.version,
@@ -788,6 +802,7 @@ pub fn enqueue_full_snapshot(
                     "priority",
                     "due",
                     "deleted_at",
+                    "recurrence",
                     "project",
                 ],
                 false,
@@ -796,6 +811,32 @@ pub fn enqueue_full_snapshot(
             )?;
             count += 1;
         }
+    }
+    for event in store.all_events()? {
+        enqueue_local_change(
+            store,
+            device_id,
+            Collection::Events,
+            &event.id().to_string(),
+            &["record"],
+            false,
+            &SyncEventPayload::from(&event),
+            now,
+        )?;
+        count += 1;
+    }
+    for session in store.all_focus_sessions()? {
+        enqueue_local_change(
+            store,
+            device_id,
+            Collection::Focus,
+            &session.id.to_string(),
+            &["record"],
+            false,
+            &session,
+            now,
+        )?;
+        count += 1;
     }
     for archived in [false, true] {
         for habit in store.habits(archived)? {
@@ -812,6 +853,8 @@ pub fn enqueue_full_snapshot(
             count += 1;
         }
     }
+    // Only sync vault items when the vault is linked to an Ottero Cloud account
+    // (never upload master-password-only blobs without an account-wrapped header).
     if let Some(meta) = store.vault_meta()?
         && let Some(payload) = SyncVaultMetaPayload::from_meta(&meta)
     {
@@ -826,19 +869,19 @@ pub fn enqueue_full_snapshot(
             now,
         )?;
         count += 1;
-    }
-    for item in store.vault_items()? {
-        enqueue_local_change(
-            store,
-            device_id,
-            Collection::Vault,
-            &item.id.to_string(),
-            &["record"],
-            false,
-            &SyncVaultPayload::from(&item),
-            now,
-        )?;
-        count += 1;
+        for item in store.vault_items()? {
+            enqueue_local_change(
+                store,
+                device_id,
+                Collection::Vault,
+                &item.id.to_string(),
+                &["record"],
+                false,
+                &SyncVaultPayload::from(&item),
+                now,
+            )?;
+            count += 1;
+        }
     }
     Ok(count)
 }

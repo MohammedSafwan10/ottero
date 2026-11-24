@@ -112,6 +112,7 @@ impl Library {
                     match notice {
                         crate::sync::ws::WsNotice::SeqAdvanced(seq) => {
                             if !lib.can_auto_sync() {
+                                lib.stop_sync_ws();
                                 return false;
                             }
                             let last = lib.store.sync_state().map(|s| s.last_pull_seq).unwrap_or(0);
@@ -307,19 +308,13 @@ impl Library {
             cx.emit(LibraryEvent::AccountChanged);
             return;
         };
-        if (state.needs_full_resync || (state.last_pull_seq == 0 && self.pending_sync_count() == 0))
-            && crate::sync::enqueue_full_snapshot(&self.store, &device_id, now).is_ok()
-        {
-            state.needs_full_resync = false;
-            state.last_pull_seq = 0;
-            let _ = self.store.save_sync_state(&state);
-        }
-        let local_keys = self.store.sync_collection_keys().unwrap_or_default();
-        let pending = self.store.pending_sync_changes(1_000).unwrap_or_default();
-        let sync_url = crate::sync::client::resolve_sync_url();
         // Use a stable separator-safe account identifier derived from email if
         // server account_id isn't stored yet, and persist it so AAD stays stable.
-        let account_id = if state.account_id.is_empty() {
+        // A brand-new sync_state (empty account_id) always triggers one initial
+        // full snapshot so pre-existing local data is uploaded even if edits
+        // happened before the first sync.
+        let first_sync = state.account_id.is_empty();
+        let account_id = if first_sync {
             let derived: String = email
                 .chars()
                 .map(|c| {
@@ -331,11 +326,28 @@ impl Library {
                 })
                 .collect();
             state.account_id = derived.clone();
+            state.needs_full_resync = true;
             let _ = self.store.save_sync_state(&state);
             derived
         } else {
             state.account_id.clone()
         };
+        if state.needs_full_resync
+            && crate::sync::enqueue_full_snapshot(&self.store, &device_id, now).is_ok()
+        {
+            // Re-read sync_state so we keep the fresh `last_hlc` written by
+            // `enqueue_full_snapshot` instead of clobbering it with stale state.
+            if let Ok(mut refreshed) = self.store.sync_state() {
+                refreshed.account_id = account_id.clone();
+                refreshed.needs_full_resync = false;
+                refreshed.last_pull_seq = 0;
+                let _ = self.store.save_sync_state(&refreshed);
+                state = refreshed;
+            }
+        }
+        let local_keys = self.store.sync_collection_keys().unwrap_or_default();
+        let pending = self.store.pending_sync_changes(1_000).unwrap_or_default();
+        let sync_url = crate::sync::client::resolve_sync_url();
         let input = crate::sync::engine::BackgroundSyncInput {
             sync_url,
             bearer_token: ottero_crypto::Zeroizing::new(token.expose().to_owned()),
@@ -432,7 +444,10 @@ impl Library {
                         if let Ok(mut st) = lib.store.sync_state() {
                             st.last_pull_seq = st.last_pull_seq.max(applied_seq);
                             if let Some(hlc) = outcome.last_hlc {
-                                st.last_hlc = Some(hlc);
+                                st.last_hlc = Some(match st.last_hlc {
+                                    Some(existing) => existing.max(hlc),
+                                    None => hlc,
+                                });
                             }
                             if apply_err.is_none() {
                                 st.last_synced_at = Some(clock::now());
@@ -522,8 +537,9 @@ impl Library {
         Ok(state.device_id)
     }
 
-    /// Enqueues a local mutation into `sync_outbox` when signed in to Ottero Cloud.
-    /// Local-only users never accumulate outbox rows.
+    /// Enqueues a local mutation into `sync_outbox` when signed in with an
+    /// active Ottero Cloud plan. Local-only and Free users never accumulate
+    /// unbounded outbox rows.
     pub(super) fn record_sync(
         &self,
         collection: ottero_sync_protocol::Collection,
@@ -532,7 +548,10 @@ impl Library {
         deleted: bool,
         payload: &impl serde::Serialize,
     ) {
-        if self.account.signed_in_email().is_none() {
+        if !matches!(
+            self.account.state(),
+            AccountState::SignedIn { plan, .. } if plan.has_cloud()
+        ) {
             return;
         }
         let Ok(device_id) = self.sync_device_id() else {
