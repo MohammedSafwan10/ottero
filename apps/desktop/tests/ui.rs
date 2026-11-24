@@ -5754,3 +5754,43 @@ fn account_key_auto_locks_after_idle_and_sleep_without_a_vault(cx: &mut TestAppC
         "waking from sleep should close an open account key even with no vault"
     );
 }
+
+#[gpui_kit::test]
+fn signed_in_library_mutations_enqueue_sync_outbox_while_local_only_does_not(
+    cx: &mut TestAppContext,
+) {
+    // 1. Local-only user: no outbox rows are created.
+    let local = launch(cx);
+    let local_lib = library(&local, cx);
+    cx.update(|cx| {
+        local_lib.update(cx, |l, cx| {
+            l.create_note("Local note", cx).expect("note");
+            l.create_task("Local task", None, cx).expect("task");
+        });
+    });
+    assert_eq!(
+        cx.read(|cx| local_lib.read(cx).pending_sync_count()),
+        0,
+        "local-only users must not accumulate sync outbox rows"
+    );
+
+    // 2. Signed-in user: Note, Task, and Task updates enqueue automatically.
+    let (app, fake) = launch_with_account(cx);
+    sign_up_through_the_ui(&app, &fake, cx);
+    let lib = library(&app, cx);
+    assert_eq!(cx.read(|cx| lib.read(cx).pending_sync_count()), 0);
+
+    cx.update(|cx| {
+        lib.update(cx, |l, cx| {
+            l.create_note("Synced note", cx).expect("note");
+            let tid = l.create_task("Synced task", None, cx).expect("task");
+            l.set_task_priority(tid, ottero_core::Priority::High, cx)
+                .expect("priority");
+        });
+    });
+    assert_eq!(
+        cx.read(|cx| lib.read(cx).pending_sync_count()),
+        3,
+        "signed-in mutations should enqueue into sync_outbox"
+    );
+}

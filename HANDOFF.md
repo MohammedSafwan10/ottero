@@ -197,6 +197,18 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
 
 ## Log
 
+### 2026-11-24: Library outbox hooks & `run_sync_once`
+
+- Wired `Library::record_sync` into Note, Task, Project, and Focus write/delete
+  methods in `apps/desktop/src/library.rs`: enqueues to `sync_outbox` with a
+  persistent per-install `device_id` only when signed in (local-only users stay
+  at 0 outbox rows).
+- Added `Library::pending_sync_count`, `Library::sync_state`, and
+  `Library::run_sync_once` (runs `sync_once`, applies decrypted remote changes,
+  and emits `NotesChanged` / `TasksChanged` / `FocusChanged`).
+- Added UI test `signed_in_library_mutations_enqueue_sync_outbox_while_local_only_does_not`
+  in `apps/desktop/tests/ui.rs`. Verified with `./scripts/check.sh`.
+
 ### 2026-11-24: Sync record serialization & per-field LWW remote apply
 
 - Added `apps/desktop/src/sync/record.rs`: wire payloads (`SyncNotePayload`,

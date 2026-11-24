@@ -289,6 +289,114 @@ impl Library {
         Ok(())
     }
 
+    // ---- Sync ------------------------------------------------------------
+
+    /// Pending encrypted changes waiting in the local outbox.
+    #[must_use]
+    pub fn pending_sync_count(&self) -> u64 {
+        self.store.pending_sync_count().unwrap_or(0)
+    }
+
+    /// Current sync cursor and metadata.
+    pub fn sync_state(&self) -> Result<ottero_storage::SyncState> {
+        Ok(self.store.sync_state()?)
+    }
+
+    fn sync_device_id(&self) -> Result<String> {
+        let mut state = self.store.sync_state()?;
+        if state.device_id.is_empty() {
+            state.device_id = format!("dev-{}", ottero_sync_protocol::ChangeId::new().0);
+            self.store.save_sync_state(&state)?;
+        }
+        Ok(state.device_id)
+    }
+
+    /// Enqueues a local mutation into `sync_outbox` when signed in to Ottero Cloud.
+    /// Local-only users never accumulate outbox rows.
+    fn record_sync(
+        &self,
+        collection: ottero_sync_protocol::Collection,
+        item_id: &str,
+        fields: &[&str],
+        deleted: bool,
+        payload: &impl serde::Serialize,
+    ) {
+        if self.account.signed_in_email().is_none() {
+            return;
+        }
+        let Ok(device_id) = self.sync_device_id() else {
+            return;
+        };
+        if let Err(err) = crate::sync::enqueue_local_change(
+            &self.store,
+            &device_id,
+            collection,
+            item_id,
+            fields,
+            deleted,
+            payload,
+            clock::now(),
+        ) {
+            eprintln!("ottero: couldn't enqueue sync change: {err:#}");
+        }
+    }
+
+    /// Runs one encrypted push + pull sync cycle and applies incoming remote
+    /// changes to SQLite, emitting the relevant [`LibraryEvent`]s.
+    pub fn run_sync_once(
+        &mut self,
+        client: &crate::sync::SyncClient,
+        bearer_token: &str,
+        account_id: &str,
+        cx: &mut Context<Self>,
+    ) -> std::result::Result<crate::sync::SyncCycleReport, crate::sync::SyncClientError> {
+        let device_id = self.sync_device_id().map_err(|_| {
+            crate::sync::SyncClientError::Decode("couldn't resolve sync device_id".into())
+        })?;
+        let key = {
+            let open_key = self
+                .account
+                .key()
+                .ok_or(crate::sync::SyncClientError::Unauthorized)?;
+            let mut raw = ottero_crypto::Zeroizing::new([0u8; ottero_crypto::SecretKey::LEN]);
+            raw.copy_from_slice(open_key.expose());
+            ottero_crypto::SecretKey::from_bytes(&mut raw)
+        };
+        let report = crate::sync::sync_once(
+            &mut self.store,
+            client,
+            bearer_token,
+            account_id,
+            &device_id,
+            &key,
+            clock::now(),
+        )?;
+        let mut notes_changed = false;
+        let mut tasks_changed = false;
+        let mut focus_changed = false;
+        for ch in &report.decrypted {
+            if crate::sync::apply_decrypted_change(&mut self.store, ch)? {
+                match ch.collection {
+                    ottero_sync_protocol::Collection::Notes => notes_changed = true,
+                    ottero_sync_protocol::Collection::Tasks
+                    | ottero_sync_protocol::Collection::Projects => tasks_changed = true,
+                    ottero_sync_protocol::Collection::Focus => focus_changed = true,
+                    _ => {}
+                }
+            }
+        }
+        if notes_changed {
+            cx.emit(LibraryEvent::NotesChanged);
+        }
+        if tasks_changed {
+            cx.emit(LibraryEvent::TasksChanged);
+        }
+        if focus_changed {
+            cx.emit(LibraryEvent::FocusChanged);
+        }
+        Ok(report)
+    }
+
     // ---- Focus -----------------------------------------------------------
 
     pub fn record_focus_session(
@@ -297,6 +405,13 @@ impl Library {
         cx: &mut Context<Self>,
     ) -> Result<()> {
         self.store.record_focus_session(session)?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Focus,
+            &session.id.to_string(),
+            &["record"],
+            false,
+            session,
+        );
         cx.emit(LibraryEvent::FocusChanged);
         Ok(())
     }
@@ -307,6 +422,13 @@ impl Library {
         cx: &mut Context<Self>,
     ) -> Result<()> {
         self.store.delete_focus_session(id)?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Focus,
+            &id.to_string(),
+            &["record"],
+            true,
+            &serde_json::json!({}),
+        );
         cx.emit(LibraryEvent::FocusChanged);
         Ok(())
     }
@@ -482,6 +604,13 @@ impl Library {
         self.store
             .save_note(&note)
             .context("Couldn't create the note")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Notes,
+            &note.id().to_string(),
+            &["record"],
+            false,
+            &crate::sync::SyncNotePayload::from(&note),
+        );
         cx.emit(LibraryEvent::NotesChanged);
         Ok(note.id())
     }
@@ -528,6 +657,13 @@ impl Library {
 
     pub fn delete_note_permanently(&mut self, id: NoteId, cx: &mut Context<Self>) -> Result<()> {
         self.store.delete_note_permanently(id)?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Notes,
+            &id.to_string(),
+            &["record"],
+            true,
+            &serde_json::json!({}),
+        );
         cx.emit(LibraryEvent::NotesChanged);
         Ok(())
     }
@@ -551,6 +687,13 @@ impl Library {
         self.store
             .save_note(&note)
             .context("Couldn't save the note")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Notes,
+            &note.id().to_string(),
+            &["record"],
+            false,
+            &crate::sync::SyncNotePayload::from(&note),
+        );
         cx.emit(LibraryEvent::NotesChanged);
         Ok(true)
     }
@@ -595,6 +738,21 @@ impl Library {
         self.store
             .save_task(&task)
             .context("Couldn't create the task")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Tasks,
+            &task.id().to_string(),
+            &[
+                "title",
+                "notes",
+                "status",
+                "priority",
+                "due",
+                "deleted_at",
+                "project",
+            ],
+            false,
+            &crate::sync::SyncTaskPayload::from(&task),
+        );
         cx.emit(LibraryEvent::TasksChanged);
         Ok(task.id())
     }
@@ -664,6 +822,21 @@ impl Library {
         self.store
             .save_task(&task)
             .context("Couldn't create the task")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Tasks,
+            &task.id().to_string(),
+            &[
+                "title",
+                "notes",
+                "status",
+                "priority",
+                "due",
+                "deleted_at",
+                "project",
+            ],
+            false,
+            &crate::sync::SyncTaskPayload::from(&task),
+        );
         cx.emit(LibraryEvent::TasksChanged);
         Ok(task.id())
     }
@@ -733,6 +906,13 @@ impl Library {
         self.store
             .save_project(&project)
             .context("Couldn't create the project")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Projects,
+            &project.id().to_string(),
+            &["record"],
+            false,
+            &crate::sync::SyncProjectPayload::from(&project),
+        );
         cx.emit(LibraryEvent::TasksChanged);
         Ok(project.id())
     }
@@ -749,6 +929,13 @@ impl Library {
             .context("That project no longer exists")?;
         if project.rename(name, clock::now())? {
             self.store.save_project(&project)?;
+            self.record_sync(
+                ottero_sync_protocol::Collection::Projects,
+                &project.id().to_string(),
+                &["record"],
+                false,
+                &crate::sync::SyncProjectPayload::from(&project),
+            );
             cx.emit(LibraryEvent::TasksChanged);
         }
         Ok(())
@@ -757,6 +944,13 @@ impl Library {
     /// Deletes the project; its tasks stay (without a project).
     pub fn delete_project(&mut self, id: ProjectId, cx: &mut Context<Self>) -> Result<()> {
         self.store.delete_project(id)?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Projects,
+            &id.to_string(),
+            &["record"],
+            true,
+            &serde_json::json!({}),
+        );
         cx.emit(LibraryEvent::DeveloperChanged);
         cx.emit(LibraryEvent::TasksChanged);
         Ok(())
@@ -855,6 +1049,13 @@ impl Library {
 
     pub fn delete_task_permanently(&mut self, id: TaskId, cx: &mut Context<Self>) -> Result<()> {
         self.store.delete_task_permanently(id)?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Tasks,
+            &id.to_string(),
+            &["deleted"],
+            true,
+            &serde_json::json!({}),
+        );
         cx.emit(LibraryEvent::TasksChanged);
         Ok(())
     }
@@ -870,6 +1071,21 @@ impl Library {
             self.store
                 .save_task(&task)
                 .context("Couldn't save the task")?;
+            self.record_sync(
+                ottero_sync_protocol::Collection::Tasks,
+                &task.id().to_string(),
+                &[
+                    "title",
+                    "notes",
+                    "status",
+                    "priority",
+                    "due",
+                    "deleted_at",
+                    "project",
+                ],
+                false,
+                &crate::sync::SyncTaskPayload::from(&task),
+            );
             cx.emit(LibraryEvent::TasksChanged);
         }
         Ok(())
