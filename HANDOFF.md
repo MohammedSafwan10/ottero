@@ -87,8 +87,9 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
 **Passwords under the account (2026-11-18):** push the commits; owner review
 of the new Passwords screens by clicking through once (real-window input was
 impossible here: the display was off, see Log). Open items from the
-self-review: idle auto-lock doesn't cover an open account key while the vault
-stays locked; account-key rotation (plan 06 step 8) must re-wrap the vault.
+self-review: account-key rotation (plan 06 step 8) must re-wrap the vault.
+*(Idle and sleep auto-lock for an open account key without a vault was fixed
+and tested on 2026-11-24.)*
 
 **Latest account review (2026-11-17):** original unsafe routes now return 404;
 late-result guards/regressions are in place. New confirmed findings are in
@@ -195,6 +196,18 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
 ```
 
 ## Log
+
+### 2026-11-24: Account key idle & sleep auto-lock
+
+- `Library::account_key_opened` now always calls `self.touch_vault()` so
+  unlocking an account resets the idle clock even when Passwords is not set up
+  or stays locked.
+- `PasswordsView::check_auto_lock` now runs whenever `vault_state() == Unlocked`
+  **or** `library.account_key_open()`, so both idle timeout and sleep lock an
+  open account key without a vault.
+- Added UI regression test
+  `account_key_auto_locks_after_idle_and_sleep_without_a_vault` in
+  `apps/desktop/tests/ui.rs`. `scripts/check.sh` passed.
 
 ### 2026-11-18: Passwords unlock with the Ottero account (ADR 0014)
 

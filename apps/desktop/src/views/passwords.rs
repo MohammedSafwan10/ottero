@@ -405,7 +405,7 @@ impl PasswordsView {
         let gap = now.duration_since(self.last_tick).unwrap_or(Duration::MAX);
         self.last_tick = now;
         let lib = self.library.read(cx);
-        if lib.vault_state() != LockState::Unlocked {
+        if lib.vault_state() != LockState::Unlocked && !lib.account_key_open() {
             return;
         }
         let idle = vault_prefs::get(cx).auto_lock.expired(lib.vault_idle());

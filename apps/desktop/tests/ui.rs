@@ -5716,3 +5716,41 @@ fn vault_linked_backup_restores_with_the_account(cx: &mut TestAppContext) {
     assert_eq!(finish(restore, cx).ok().flatten(), Some(1));
     assert_eq!(vault_titles(&app, cx), ["Mail"]);
 }
+
+#[gpui_kit::test]
+fn account_key_auto_locks_after_idle_and_sleep_without_a_vault(cx: &mut TestAppContext) {
+    use ottero_core::vault::lock::AutoLock;
+
+    let (app, fake) = launch_with_account(cx);
+    sign_up_through_the_ui(&app, &fake, cx);
+    assert_eq!(vault_state(&app, cx), LockState::Uninitialized);
+    assert!(account_open(&app, cx));
+
+    let lib = library(&app, cx);
+    cx.update(|cx| {
+        ottero_desktop::vault_prefs::update(cx, |p| p.auto_lock = AutoLock::OneMinute);
+        lib.update(cx, |l, _| {
+            l.backdate_vault_activity_for_tests(Duration::from_secs(120))
+        });
+    });
+    cx.executor().advance_clock(Duration::from_secs(11));
+    cx.run_until_parked();
+    assert!(
+        !account_open(&app, cx),
+        "idle auto-lock should close an open account key even with no vault"
+    );
+
+    // Unlock again: opening the account key resets the idle clock and sleep still locks it.
+    let unlock = lib.update(cx, |l, cx| l.unlock_account(password(ACCOUNT_PASSWORD), cx));
+    assert!(finish(unlock, cx).is_ok());
+    assert!(account_open(&app, cx));
+
+    let passwords = cx.read(|cx| app.shell.read(cx).passwords().clone());
+    cx.update(|cx| passwords.update(cx, |p, _| p.pretend_slept_for_tests()));
+    cx.executor().advance_clock(Duration::from_secs(11));
+    cx.run_until_parked();
+    assert!(
+        !account_open(&app, cx),
+        "waking from sleep should close an open account key even with no vault"
+    );
+}

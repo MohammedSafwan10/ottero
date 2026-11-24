@@ -1631,6 +1631,12 @@ impl Library {
     }
 
     /// The signed-in account's email and session epoch, when its key is open.
+    /// Whether the Ottero account key is currently unlocked in memory.
+    #[must_use]
+    pub fn account_key_open(&self) -> bool {
+        self.account.key().is_some()
+    }
+
     fn open_account(&self) -> Option<(String, u64)> {
         self.account.key()?;
         Some((self.account.signed_in_email()?, self.account.epoch()))
@@ -1640,6 +1646,7 @@ impl Library {
     /// a locked vault linked to this account opens with it, so one unlock
     /// opens both.
     pub(crate) fn account_key_opened(&mut self, cx: &mut Context<Self>) {
+        self.touch_vault();
         self.vault_account_problem = None;
         if self.vault.state() != LockState::Locked || self.vault.opener() != Some(Opener::Account) {
             cx.emit(LibraryEvent::VaultChanged);
@@ -1649,7 +1656,7 @@ impl Library {
             return;
         };
         match self.vault.unlock_with_account(&self.store, &email, key) {
-            Ok(AccountUnlock::Opened) => self.touch_vault(),
+            Ok(AccountUnlock::Opened) => {}
             Ok(problem) => self.vault_account_problem = Some(problem),
             Err(err) => eprintln!("ottero: couldn't open the vault with the account: {err:#}"),
         }
