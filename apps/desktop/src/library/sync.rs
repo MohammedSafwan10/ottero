@@ -1,14 +1,261 @@
 //! Cloud sync state and cycle orchestration on [`Library`].
 
+use std::time::Duration;
+
 use anyhow::Result;
 use gpui_kit::Context;
 
+use ottero_core::account::AccountState;
 use ottero_core::clock;
+use ottero_core::vault::lock::{LockState, Opener};
+
+use crate::vault::VaultSession;
 
 use super::{Library, LibraryEvent};
 
+const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(1_500);
+const AUTO_SYNC_POLL_INTERVAL: Duration = Duration::from_secs(60);
+const FOCUS_SYNC_MIN_GAP_MS: i64 = 10_000;
+
 impl Library {
     // ---- Sync ------------------------------------------------------------
+
+    /// Enables automatic cloud sync (sign-in/unlock trigger, debounced local
+    /// writes, 60 s background fallback timer, and live WebSocket push notices).
+    /// Called only from real desktop startup so headless tests never hit the network.
+    pub fn enable_auto_sync(&mut self, cx: &mut Context<Self>) {
+        if self.auto_sync_enabled {
+            return;
+        }
+        self.auto_sync_enabled = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(AUTO_SYNC_POLL_INTERVAL)
+                    .await;
+                let alive = this.update(cx, |lib, cx| {
+                    if lib.can_auto_sync() {
+                        lib.ensure_sync_ws(cx);
+                        if !lib.sync_in_flight {
+                            lib.sync_now(cx);
+                        }
+                    }
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    #[must_use]
+    pub(crate) fn can_auto_sync(&self) -> bool {
+        if !self.auto_sync_enabled {
+            return false;
+        }
+        if !self.account.is_unlocked() || self.account.current_token().is_none() {
+            return false;
+        }
+        matches!(
+            self.account.state(),
+            AccountState::SignedIn { plan, .. } if plan.has_cloud()
+        )
+    }
+
+    /// Called when the account key opens (sign-in or unlock): starts the live
+    /// WebSocket listener and runs an immediate sync if the account has Cloud.
+    pub(crate) fn on_account_unlocked_for_sync(&mut self, cx: &mut Context<Self>) {
+        if !self.can_auto_sync() {
+            return;
+        }
+        self.ensure_sync_ws(cx);
+        self.sync_now(cx);
+    }
+
+    /// Stops any active WebSocket listener (on lock or sign-out).
+    pub(crate) fn stop_sync_ws(&mut self) {
+        self.sync_ws_handle = None;
+        self.sync_ws_epoch = None;
+        self.sync_needed_again = false;
+    }
+
+    /// Starts the WebSocket push listener if not already connected for this epoch.
+    pub(crate) fn ensure_sync_ws(&mut self, cx: &mut Context<Self>) {
+        if !self.can_auto_sync() {
+            return;
+        }
+        let epoch = self.account.epoch();
+        if self.sync_ws_epoch == Some(epoch) && self.sync_ws_handle.is_some() {
+            return;
+        }
+        let Some(token) = self.account.current_token() else {
+            return;
+        };
+        let sync_url = crate::sync::client::resolve_sync_url();
+        let (tx, rx) = async_channel::bounded::<crate::sync::ws::WsNotice>(16);
+        let Some(handle) = crate::sync::ws::spawn_ws_listener(
+            &sync_url,
+            ottero_crypto::Zeroizing::new(token.expose().to_owned()),
+            tx,
+        ) else {
+            return;
+        };
+        self.sync_ws_handle = Some(handle);
+        self.sync_ws_epoch = Some(epoch);
+        cx.spawn(async move |this, cx| {
+            while let Ok(notice) = rx.recv().await {
+                let keep = this.update(cx, |lib, cx| {
+                    if lib.account.epoch() != epoch {
+                        return false;
+                    }
+                    match notice {
+                        crate::sync::ws::WsNotice::SeqAdvanced(seq) => {
+                            if !lib.can_auto_sync() {
+                                return false;
+                            }
+                            let last = lib.store.sync_state().map(|s| s.last_pull_seq).unwrap_or(0);
+                            if seq > last {
+                                if lib.sync_in_flight {
+                                    lib.sync_needed_again = true;
+                                } else {
+                                    lib.sync_now(cx);
+                                }
+                            }
+                            true
+                        }
+                        crate::sync::ws::WsNotice::DeviceRevoked
+                        | crate::sync::ws::WsNotice::AuthRejected => {
+                            lib.stop_sync_ws();
+                            lib.refresh_account(cx);
+                            false
+                        }
+                        crate::sync::ws::WsNotice::EntitlementChanged(active) => {
+                            if !active {
+                                lib.stop_sync_ws();
+                            }
+                            lib.refresh_account(cx);
+                            active
+                        }
+                    }
+                });
+                if !matches!(keep, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// Coalesces rapid local edits into a single sync cycle after a short delay.
+    pub fn schedule_debounced_sync(&mut self, cx: &mut Context<Self>) {
+        if !self.can_auto_sync() {
+            return;
+        }
+        self.ensure_sync_ws(cx);
+        if self.sync_in_flight {
+            self.sync_needed_again = true;
+            return;
+        }
+        self.sync_debounce_gen = self.sync_debounce_gen.wrapping_add(1);
+        let generation = self.sync_debounce_gen;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(AUTO_SYNC_DEBOUNCE).await;
+            _ = this.update(cx, |lib, cx| {
+                if lib.sync_debounce_gen == generation && lib.can_auto_sync() {
+                    if lib.sync_in_flight {
+                        lib.sync_needed_again = true;
+                    } else {
+                        lib.sync_now(cx);
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Runs a quick sync when the window returns to the foreground, unless one
+    /// already finished within the last 10 seconds.
+    pub fn sync_on_focus(&mut self, cx: &mut Context<Self>) {
+        if !self.can_auto_sync() || self.sync_in_flight {
+            return;
+        }
+        self.ensure_sync_ws(cx);
+        let now_ms = clock::now().as_millisecond();
+        let recently_synced = self
+            .store
+            .sync_state()
+            .ok()
+            .and_then(|s| s.last_synced_at)
+            .is_some_and(|t| now_ms.saturating_sub(t.as_millisecond()) < FOCUS_SYNC_MIN_GAP_MS);
+        if !recently_synced || self.pending_sync_count() > 0 {
+            self.sync_now(cx);
+        }
+    }
+
+    /// Enqueues the account-wrapped `vault_meta` header so other devices signed
+    /// into this Ottero Cloud account can decrypt synced Passwords automatically.
+    pub(super) fn record_vault_meta_sync(&mut self, cx: &mut Context<Self>) {
+        if let Ok(Some(meta)) = self.store.vault_meta()
+            && let Some(payload) = crate::sync::SyncVaultMetaPayload::from_meta(&meta)
+        {
+            self.record_sync(
+                ottero_sync_protocol::Collection::Vault,
+                crate::sync::VAULT_META_SYNC_ID,
+                &["record"],
+                false,
+                &payload,
+            );
+            self.schedule_debounced_sync(cx);
+        }
+    }
+
+    /// Enqueues the account-wrapped `vault_meta` header and all existing vault
+    /// items so another device receives the entire linked vault cleanly.
+    pub(super) fn record_vault_meta_and_items_sync(&mut self, cx: &mut Context<Self>) {
+        self.record_vault_meta_sync(cx);
+        if let Ok(items) = self.store.vault_items() {
+            for item in items {
+                self.record_sync(
+                    ottero_sync_protocol::Collection::Vault,
+                    &item.id.to_string(),
+                    &["record"],
+                    false,
+                    &crate::sync::SyncVaultPayload::from(&item),
+                );
+            }
+        }
+        self.schedule_debounced_sync(cx);
+    }
+
+    /// Refreshes local `VaultSession` after a sync cycle touched `Collection::Vault`.
+    /// When `vault_meta_changed` is true (e.g., a fresh or empty device adopted a
+    /// synced account-wrapped vault key), reloads `VaultSession` from disk and
+    /// unlocks with the open account key so the in-memory key is never stale.
+    fn refresh_vault_after_sync(&mut self, vault_meta_changed: bool) {
+        if (vault_meta_changed || self.vault.state() == LockState::Uninitialized)
+            && let Ok(loaded) = VaultSession::load(&self.store)
+        {
+            self.vault = loaded;
+        }
+        if self.vault.is_unlocked() {
+            if let Err(err) = self.vault.reload_if_unlocked(&self.store) {
+                eprintln!("ottero: couldn't reload vault after sync: {err:#}");
+            }
+        } else if self.vault.state() == LockState::Locked
+            && self.vault.opener() == Some(Opener::Account)
+            && let (Some(key), Some(email)) = (self.account.key(), self.account.signed_in_email())
+        {
+            match self.vault.unlock_with_account(&self.store, &email, key) {
+                Ok(crate::vault::AccountUnlock::Opened) => {
+                    self.vault_account_problem = None;
+                    self.touch_vault();
+                }
+                Ok(problem) => self.vault_account_problem = Some(problem),
+                Err(err) => eprintln!("ottero: couldn't unlock synced vault: {err:#}"),
+            }
+        }
+    }
 
     /// Pending encrypted changes waiting in the local outbox.
     #[must_use]
@@ -60,18 +307,20 @@ impl Library {
             cx.emit(LibraryEvent::AccountChanged);
             return;
         };
-        if state.needs_full_resync || (state.last_pull_seq == 0 && self.pending_sync_count() == 0) {
-            let _ = crate::sync::enqueue_full_snapshot(&self.store, &device_id, now);
+        if (state.needs_full_resync || (state.last_pull_seq == 0 && self.pending_sync_count() == 0))
+            && crate::sync::enqueue_full_snapshot(&self.store, &device_id, now).is_ok()
+        {
+            state.needs_full_resync = false;
             state.last_pull_seq = 0;
+            let _ = self.store.save_sync_state(&state);
         }
         let local_keys = self.store.sync_collection_keys().unwrap_or_default();
         let pending = self.store.pending_sync_changes(1_000).unwrap_or_default();
-        let sync_url = std::env::var("OTTERO_SYNC_URL")
-            .unwrap_or_else(|_| crate::sync::DEFAULT_SYNC_URL.to_owned());
+        let sync_url = crate::sync::client::resolve_sync_url();
         // Use a stable separator-safe account identifier derived from email if
-        // server account_id isn't stored yet.
+        // server account_id isn't stored yet, and persist it so AAD stays stable.
         let account_id = if state.account_id.is_empty() {
-            email
+            let derived: String = email
                 .chars()
                 .map(|c| {
                     if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
@@ -80,7 +329,10 @@ impl Library {
                         '_'
                     }
                 })
-                .collect()
+                .collect();
+            state.account_id = derived.clone();
+            let _ = self.store.save_sync_state(&state);
+            derived
         } else {
             state.account_id.clone()
         };
@@ -129,6 +381,12 @@ impl Library {
                         let mut apply_err: Option<String> = None;
                         let mut applied_seq =
                             lib.store.sync_state().map(|s| s.last_pull_seq).unwrap_or(0);
+                        let meta_before = lib
+                            .store
+                            .vault_meta()
+                            .ok()
+                            .flatten()
+                            .and_then(|m| m.account.map(|a| a.wrapped_key));
                         for (next_seq, page) in &outcome.pages {
                             match crate::sync::apply_decrypted_page(&mut lib.store, page) {
                                 Ok(touched) => {
@@ -164,6 +422,13 @@ impl Library {
                                 }
                             }
                         }
+                        let meta_after = lib
+                            .store
+                            .vault_meta()
+                            .ok()
+                            .flatten()
+                            .and_then(|m| m.account.map(|a| a.wrapped_key));
+                        let vault_meta_changed = meta_before != meta_after;
                         if let Ok(mut st) = lib.store.sync_state() {
                             st.last_pull_seq = st.last_pull_seq.max(applied_seq);
                             if let Some(hlc) = outcome.last_hlc {
@@ -176,9 +441,8 @@ impl Library {
                             let _ = lib.store.save_sync_state(&st);
                         }
                         lib.sync_last_error = apply_err;
-                        if vault_changed && let Err(err) = lib.vault.reload_if_unlocked(&lib.store)
-                        {
-                            eprintln!("ottero: couldn't reload vault after sync: {err:#}");
+                        if vault_changed || vault_meta_changed {
+                            lib.refresh_vault_after_sync(vault_meta_changed);
                         }
                         if notes_changed {
                             cx.emit(LibraryEvent::NotesChanged);
@@ -195,8 +459,18 @@ impl Library {
                         if focus_changed {
                             cx.emit(LibraryEvent::FocusChanged);
                         }
-                        if vault_changed {
+                        if vault_changed || vault_meta_changed {
                             cx.emit(LibraryEvent::VaultChanged);
+                        }
+                        let made_progress = !outcome.acked_ids.is_empty();
+                        let should_resync = lib.sync_needed_again
+                            || (lib.can_auto_sync()
+                                && made_progress
+                                && lib.pending_sync_count() > 0
+                                && lib.sync_last_error.is_none());
+                        lib.sync_needed_again = false;
+                        if should_resync {
+                            lib.schedule_debounced_sync(cx);
                         }
                     }
                     Err(crate::sync::SyncClientError::CursorExpired) => {
@@ -210,8 +484,13 @@ impl Library {
                         );
                     }
                     Err(crate::sync::SyncClientError::EntitlementRequired) => {
+                        lib.stop_sync_ws();
                         lib.sync_last_error =
                             Some("An active Ottero Cloud plan is required to sync.".into());
+                    }
+                    Err(crate::sync::SyncClientError::Unauthorized) => {
+                        lib.stop_sync_ws();
+                        lib.sync_last_error = Some("Sign in again to sync.".into());
                     }
                     Err(err) => {
                         lib.sync_last_error = Some(err.to_string());
@@ -300,6 +579,12 @@ impl Library {
         let mut habits_changed = false;
         let mut focus_changed = false;
         let mut vault_changed = false;
+        let meta_before = self
+            .store
+            .vault_meta()
+            .ok()
+            .flatten()
+            .and_then(|m| m.account.map(|a| a.wrapped_key));
         let report = crate::sync::sync_once_with_apply(
             &mut self.store,
             client,
@@ -324,8 +609,15 @@ impl Library {
                 Ok(())
             },
         )?;
-        if vault_changed && let Err(err) = self.vault.reload_if_unlocked(&self.store) {
-            eprintln!("ottero: couldn't reload vault after sync: {err:#}");
+        let meta_after = self
+            .store
+            .vault_meta()
+            .ok()
+            .flatten()
+            .and_then(|m| m.account.map(|a| a.wrapped_key));
+        let vault_meta_changed = meta_before != meta_after;
+        if vault_changed || vault_meta_changed {
+            self.refresh_vault_after_sync(vault_meta_changed);
         }
         if notes_changed {
             cx.emit(LibraryEvent::NotesChanged);

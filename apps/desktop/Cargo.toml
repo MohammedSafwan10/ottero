@@ -35,6 +35,7 @@ os-spellcheck.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 ureq.workspace = true
+tungstenite.workspace = true
 async-channel.workspace = true
 directories.workspace = true
 jiff.workspace = true

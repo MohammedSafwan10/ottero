@@ -61,6 +61,16 @@ pub struct Library {
     sync_in_flight: bool,
     /// Last user-facing sync error, cleared on the next sync attempt.
     sync_last_error: Option<String>,
+    /// True in the real desktop app (off in headless unit/UI tests unless enabled).
+    auto_sync_enabled: bool,
+    /// Set when a local edit happens while a sync cycle is already in-flight.
+    sync_needed_again: bool,
+    /// Monotonic counter used to coalesce rapid local edits into one debounced sync.
+    sync_debounce_gen: u64,
+    /// Active WebSocket change-notice listener handle, if connected.
+    sync_ws_handle: Option<crate::sync::ws::SyncWsHandle>,
+    /// Account epoch that owns `sync_ws_handle`.
+    sync_ws_epoch: Option<u64>,
 }
 
 /// What opens an archive or backup the user picked.
@@ -97,6 +107,11 @@ impl Library {
             vault_account_problem: None,
             sync_in_flight: false,
             sync_last_error: None,
+            auto_sync_enabled: false,
+            sync_needed_again: false,
+            sync_debounce_gen: 0,
+            sync_ws_handle: None,
+            sync_ws_epoch: None,
         }
     }
 }

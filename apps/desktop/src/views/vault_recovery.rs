@@ -542,10 +542,16 @@ pub fn export_backup(library: Entity<Library>, window: &mut Window, cx: &mut App
             };
             _ = cx.update(|window, cx| {
                 match library.read(cx).export_vault(&path) {
-                    Ok(()) => window.push_notification(
-                        "Vault backup saved. It's encrypted and opens with your current master password.",
-                        cx,
-                    ),
+                    Ok(()) => {
+                        let msg = if library.read(cx).vault_opener()
+                            == Some(ottero_core::vault::lock::Opener::Account)
+                        {
+                            "Vault backup saved. It's encrypted and opens with your Ottero account."
+                        } else {
+                            "Vault backup saved. It's encrypted and opens with your current master password."
+                        };
+                        window.push_notification(msg, cx);
+                    }
                     Err(err) => {
                         ottero_ui::feedback::error_toast(format!("{err:#}"), window, cx);
                     }
@@ -593,8 +599,10 @@ enum ArchiveMode {
     Password,
     /// A linked file whose account is open now: no input needed.
     Account(String),
-    /// A linked file without its account open: its recovery key.
+    /// A linked file without its account open and with a local recovery key.
     RecoveryKey(String),
+    /// A linked file without its account open and without a local recovery key.
+    AccountRequired(String),
 }
 
 pub struct OpenArchive {
@@ -602,6 +610,7 @@ pub struct OpenArchive {
     backup: bool,
     library: Entity<Library>,
     mode: ArchiveMode,
+    has_recovery: bool,
     password: Entity<InputState>,
     error: Option<SharedString>,
     busy: bool,
@@ -616,18 +625,30 @@ impl OpenArchive {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mode = match crate::vault::ArchiveFile::read(&path).map(|a| a.opener()) {
-            Ok(ArchiveOpener::Account(email)) => {
-                let account = library.read(cx).account();
-                if account.is_unlocked()
-                    && account.signed_in_email().as_deref() == Some(email.as_str())
-                {
-                    ArchiveMode::Account(email)
-                } else {
-                    ArchiveMode::RecoveryKey(email)
-                }
+        let (mode, has_recovery) = match crate::vault::ArchiveFile::read(&path) {
+            Ok(archive) => {
+                let has_recovery = archive.has_recovery();
+                let mode = match archive.opener() {
+                    ArchiveOpener::Account(email) => {
+                        let account = library.read(cx).account();
+                        if account.is_unlocked()
+                            && account
+                                .signed_in_email()
+                                .as_deref()
+                                .is_some_and(|e| e.eq_ignore_ascii_case(&email))
+                        {
+                            ArchiveMode::Account(email)
+                        } else if has_recovery {
+                            ArchiveMode::RecoveryKey(email)
+                        } else {
+                            ArchiveMode::AccountRequired(email)
+                        }
+                    }
+                    ArchiveOpener::MasterPassword => ArchiveMode::Password,
+                };
+                (mode, has_recovery)
             }
-            _ => ArchiveMode::Password,
+            Err(_) => (ArchiveMode::Password, false),
         };
         let password = cx.new(|cx| {
             let state = InputState::new(window, cx);
@@ -654,6 +675,7 @@ impl OpenArchive {
             backup,
             library,
             mode,
+            has_recovery,
             password,
             error: None,
             busy: false,
@@ -662,6 +684,9 @@ impl OpenArchive {
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.mode, ArchiveMode::AccountRequired(_)) {
+            return;
+        }
         let text = self.password.read(cx).value().to_string();
         if self.busy || (text.is_empty() && !matches!(self.mode, ArchiveMode::Account(_))) {
             return;
@@ -673,6 +698,7 @@ impl OpenArchive {
             ArchiveMode::Password => ArchiveSecret::Password(SecretString::from(text)),
             ArchiveMode::Account(_) => ArchiveSecret::Account,
             ArchiveMode::RecoveryKey(_) => ArchiveSecret::RecoveryKey(Zeroizing::new(text)),
+            ArchiveMode::AccountRequired(_) => return,
         };
         let task = self
             .library
@@ -710,14 +736,20 @@ impl OpenArchive {
                                 format!("That recovery key doesn't open this {what}.").into()
                             }
                             ArchiveMode::Account(email) => {
-                                // Fall back to the recovery key.
-                                let email = email.clone();
-                                this.mode = ArchiveMode::RecoveryKey(email);
-                                this.password.update(cx, |i, cx| {
-                                    i.set_placeholder("Recovery key: XXXX-XXXX-…", window, cx);
-                                    i.focus(window, cx);
-                                });
-                                format!("Your account's key doesn't open this {what}. Enter its recovery key.").into()
+                                if this.has_recovery {
+                                    let email = email.clone();
+                                    this.mode = ArchiveMode::RecoveryKey(email);
+                                    this.password.update(cx, |i, cx| {
+                                        i.set_placeholder("Recovery key: XXXX-XXXX-…", window, cx);
+                                        i.focus(window, cx);
+                                    });
+                                    format!("Your account's key doesn't open this {what}. Enter its recovery key.").into()
+                                } else {
+                                    format!("Your account's key doesn't open this {what}.").into()
+                                }
+                            }
+                            ArchiveMode::AccountRequired(email) => {
+                                format!("Sign in and unlock {email} to open this {what}.").into()
                             }
                         })
                     }
@@ -742,6 +774,10 @@ impl Render for OpenArchive {
                 format!("It opens with the Ottero account {email}, or with its recovery key.")
                     .into(),
             ),
+            ArchiveMode::AccountRequired(email) => Some(
+                format!("Sign in and unlock your Ottero account ({email}) to open this file.")
+                    .into(),
+            ),
         };
         v_flex()
             .gap_4()
@@ -754,7 +790,7 @@ impl Render for OpenArchive {
             .map(|s| match self.mode {
                 ArchiveMode::Password => s.child(Input::new(&self.password).mask_toggle()),
                 ArchiveMode::RecoveryKey(_) => s.child(Input::new(&self.password)),
-                ArchiveMode::Account(_) => s,
+                ArchiveMode::Account(_) | ArchiveMode::AccountRequired(_) => s,
             })
             .children(
                 self.error
@@ -771,7 +807,7 @@ impl Render for OpenArchive {
                             "Open and add items"
                         })
                         .loading(self.busy)
-                        .disabled(self.busy)
+                        .disabled(self.busy || matches!(self.mode, ArchiveMode::AccountRequired(_)))
                         .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
                 ),
             )

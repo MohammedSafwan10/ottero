@@ -129,8 +129,9 @@ fn sign_up_as(app: &App, fake: &FakeAccountApi, email: &str, cx: &mut TestAppCon
 }
 
 /// Sets a new vault up under the signed-in account from the setup screen.
-/// Returns the recovery key it showed.
-fn set_up_under_account(app: &App, cx: &mut TestAppContext) -> String {
+/// Cloud-linked vaults go straight to Unlocked without a redundant second
+/// recovery-key gate (the Account Emergency Kit covers recovery).
+fn set_up_under_account(app: &App, cx: &mut TestAppContext) {
     use ottero_desktop::actions::GoPasswords;
     dispatch(app, cx, GoPasswords);
     assert_eq!(vault_screen(app, cx), VaultScreen::SetupWithAccount);
@@ -140,15 +141,15 @@ fn set_up_under_account(app: &App, cx: &mut TestAppContext) -> String {
     );
     click(app, cx, "vault-create-account");
     assert_eq!(vault_state(app, cx), LockState::Unlocked);
-    assert_eq!(vault_screen(app, cx), VaultScreen::Recovery);
-    let passwords = cx.read(|cx| app.shell.read(cx).passwords().clone());
-    let key = cx
-        .read(|cx| passwords.read(cx).recovery_key().map(str::to_owned))
-        .expect("recovery key shown once");
-    click(app, cx, "recovery-saved");
-    click(app, cx, "recovery-done");
     assert_eq!(vault_screen(app, cx), VaultScreen::Unlocked);
-    key
+}
+
+/// Explicitly generates an optional local vault recovery key (for tests that
+/// exercise offline vault recovery on a Cloud-linked vault).
+fn create_optional_recovery_key(app: &App, cx: &mut TestAppContext) -> String {
+    let lib = library(app, cx);
+    let task = lib.update(cx, |l, cx| l.new_recovery_key(cx));
+    finish(task, cx).expect("recovery key").to_string()
 }
 
 fn add_login(app: &App, title: &str, cx: &mut TestAppContext) {
@@ -360,7 +361,8 @@ fn vault_linked_sign_out_locks_and_signing_back_in_reopens(cx: &mut TestAppConte
 fn vault_another_account_cannot_open_it_and_the_recovery_key_moves_it(cx: &mut TestAppContext) {
     let (app, fake) = launch_with_account(cx);
     sign_up_through_the_ui(&app, &fake, cx);
-    let recovery = set_up_under_account(&app, cx);
+    set_up_under_account(&app, cx);
+    let recovery = create_optional_recovery_key(&app, cx);
     add_login(&app, "Mail", cx);
     sign_out(&app, cx);
 
@@ -411,7 +413,8 @@ fn vault_another_account_cannot_open_it_and_the_recovery_key_moves_it(cx: &mut T
 fn vault_recovery_key_opens_a_linked_vault_while_signed_out(cx: &mut TestAppContext) {
     let (app, fake) = launch_with_account(cx);
     sign_up_through_the_ui(&app, &fake, cx);
-    let recovery = set_up_under_account(&app, cx);
+    set_up_under_account(&app, cx);
+    let recovery = create_optional_recovery_key(&app, cx);
     add_login(&app, "Mail", cx);
     sign_out(&app, cx);
     let lib = library(&app, cx);

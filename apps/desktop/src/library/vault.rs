@@ -216,6 +216,9 @@ impl Library {
                 if ok {
                     lib.vault_account_problem = None;
                     lib.touch_vault();
+                    if new_kek.is_none() {
+                        lib.record_vault_meta_and_items_sync(cx);
+                    }
                 }
                 cx.emit(LibraryEvent::VaultChanged);
                 anyhow::Ok(ok)
@@ -354,8 +357,12 @@ impl Library {
                         Some(copy)
                     })
                     .collect();
+                let imported_ids: Vec<VaultItemId> = copies.iter().map(VaultItem::id).collect();
                 let n = copies.len();
                 lib.vault.put(&mut lib.store, copies)?;
+                for id in imported_ids {
+                    lib.record_vault_sync(id);
+                }
                 cx.emit(LibraryEvent::VaultChanged);
                 anyhow::Ok(Some(n))
             })?
@@ -460,90 +467,66 @@ impl Library {
 
     /// The account key just opened (sign-in, unlock, a password check):
     /// a locked vault linked to this account opens with it, so one unlock
-    /// opens both.
+    /// opens both. Also starts auto-sync + live WebSocket notices when enabled.
     pub(crate) fn account_key_opened(&mut self, cx: &mut Context<Self>) {
         self.touch_vault();
         self.vault_account_problem = None;
-        if self.vault.state() != LockState::Locked || self.vault.opener() != Some(Opener::Account) {
-            cx.emit(LibraryEvent::VaultChanged);
-            return;
-        }
-        let (Some(key), Some(email)) = (self.account.key(), self.account.signed_in_email()) else {
-            return;
-        };
-        match self.vault.unlock_with_account(&self.store, &email, key) {
-            Ok(AccountUnlock::Opened) => {}
-            Ok(problem) => self.vault_account_problem = Some(problem),
-            Err(err) => eprintln!("ottero: couldn't open the vault with the account: {err:#}"),
+        if self.vault.state() == LockState::Locked
+            && self.vault.opener() == Some(Opener::Account)
+            && let (Some(key), Some(email)) = (self.account.key(), self.account.signed_in_email())
+        {
+            match self.vault.unlock_with_account(&self.store, &email, key) {
+                Ok(AccountUnlock::Opened) => {}
+                Ok(problem) => self.vault_account_problem = Some(problem),
+                Err(err) => eprintln!("ottero: couldn't open the vault with the account: {err:#}"),
+            }
         }
         cx.emit(LibraryEvent::VaultChanged);
+        self.on_account_unlocked_for_sync(cx);
     }
 
     /// The account key is gone (locked, signed out, session ended).
     pub(crate) fn account_key_closed(&mut self, cx: &mut Context<Self>) {
+        self.stop_sync_ws();
         self.vault_account_problem = None;
         self.lock_vault_only(cx);
         cx.emit(LibraryEvent::VaultChanged);
     }
 
-    /// Sets the vault up under the open account key (no master password)
-    /// and a new recovery key, which resolves for the user to save. The
-    /// result is dropped if the account changed while the key was derived.
+    /// Sets the vault up under the open account key (no master password and no
+    /// redundant second recovery key — the Account Emergency Kit covers recovery).
     pub fn set_up_vault_with_account(
         &mut self,
         cx: &mut Context<Self>,
-    ) -> gpui_kit::Task<Result<Zeroizing<String>>> {
-        let Some((email, epoch)) = self.open_account() else {
+    ) -> gpui_kit::Task<Result<()>> {
+        let Some((email, _epoch)) = self.open_account() else {
             return gpui_kit::Task::ready(Err(anyhow::anyhow!(
                 "Unlock your Ottero account first."
             )));
         };
-        let made = KdfInput::fresh(RECOVERY_KDF).and_then(|i| Ok((i, new_recovery_key()?)));
-        let (rinput, recovery) = match made {
-            Ok(v) => v,
-            Err(err) => return gpui_kit::Task::ready(Err(err)),
+        let Some(key) = self.account.key() else {
+            return gpui_kit::Task::ready(Err(anyhow::anyhow!(
+                "Unlock your Ottero account first."
+            )));
         };
-        cx.spawn(async move |this, cx| {
-            let normalized =
-                recovery::normalize(&recovery).context("Couldn't make a recovery key")?;
-            let rkek = cx
-                .background_executor()
-                .spawn(async move {
-                    derive(
-                        &SecretString::from(normalized.to_string()),
-                        &rinput.salt,
-                        rinput.params,
-                    )
-                })
-                .await?;
-            this.update(cx, |lib, cx| {
-                let Some(key) = lib.account.key().filter(|_| {
-                    lib.account.epoch() == epoch
-                        && lib.account.signed_in_email().as_deref() == Some(email.as_str())
-                }) else {
-                    anyhow::bail!("The account changed in the meantime. Try again.");
-                };
-                lib.vault.finish_setup_with_account(
-                    &mut lib.store,
-                    &email,
-                    key,
-                    (rinput, &rkek),
-                    clock::now(),
-                )?;
-                lib.touch_vault();
-                cx.emit(LibraryEvent::VaultChanged);
-                anyhow::Ok(recovery)
-            })?
-        })
+        let res =
+            self.vault
+                .finish_setup_with_account(&mut self.store, &email, key, None, clock::now());
+        if res.is_ok() {
+            self.touch_vault();
+            self.record_vault_meta_sync(cx);
+            cx.emit(LibraryEvent::VaultChanged);
+        }
+        gpui_kit::Task::ready(res)
     }
 
     /// Links a master-password vault to the open account: checks
     /// `master_password` in the background, then re-wraps the vault key
     /// under the account key and retires the master password in one
-    /// transaction (a vault without a recovery key gets one in the same
-    /// write; it resolves for the user to save). A locked vault ends up
-    /// unlocked. Results that arrive after the account changed, or after
-    /// the vault was locked, are dropped and change nothing.
+    /// transaction. Any existing local recovery key is kept; no second
+    /// recovery key is forced. A locked vault ends up unlocked. Results that
+    /// arrive after the account changed, or after the vault was locked, are
+    /// dropped and change nothing.
     pub fn link_vault_to_account(
         &mut self,
         master_password: SecretString,
@@ -554,60 +537,30 @@ impl Library {
                 "Unlock your Ottero account first."
             )));
         };
-        let recovery = if VaultSession::has_recovery(&self.store) {
-            None
-        } else {
-            match KdfInput::fresh(RECOVERY_KDF).and_then(|i| Ok((i, new_recovery_key()?))) {
-                Ok(v) => Some(v),
-                Err(err) => return gpui_kit::Task::ready(Err(err)),
-            }
-        };
         let (input, vault_epoch) = match self.vault.start_link(&self.store) {
             Ok(v) => v,
             Err(err) => return gpui_kit::Task::ready(Err(err)),
         };
         cx.emit(LibraryEvent::VaultChanged);
         cx.spawn(async move |this, cx| {
-            let normalized = recovery
-                .as_ref()
-                .map(|(_, key)| recovery::normalize(key).context("Couldn't make a recovery key"))
-                .transpose();
-            let rinput = recovery.as_ref().map(|(i, _)| *i);
-            let (kek, rkek) = cx
+            let kek = cx
                 .background_executor()
-                .spawn(async move {
-                    let kek = derive(&master_password, &input.salt, input.params);
-                    let rkek = match (normalized, rinput) {
-                        (Ok(Some(n)), Some(ri)) => Some(derive(
-                            &SecretString::from(n.to_string()),
-                            &ri.salt,
-                            ri.params,
-                        )),
-                        (Err(err), _) => Some(Err(err)),
-                        _ => None,
-                    };
-                    (kek, rkek)
-                })
+                .spawn(async move { derive(&master_password, &input.salt, input.params) })
                 .await;
             this.update(cx, |lib, cx| {
                 let still = lib.account.epoch() == account_epoch
                     && lib.account.signed_in_email().as_deref() == Some(email.as_str());
-                let key = lib.account.key().filter(|_| still);
-                let (Some(key), Ok(rkek)) = (key, rkek.transpose()) else {
+                let Some(key) = lib.account.key().filter(|_| still) else {
                     lib.vault.cancel_link(vault_epoch);
                     cx.emit(LibraryEvent::VaultChanged);
                     return anyhow::Ok((LinkResult::Stale, None));
-                };
-                let new_recovery = match (&recovery, &rkek) {
-                    (Some((ri, _)), Some(rkek)) => Some((*ri, rkek)),
-                    _ => None,
                 };
                 let result = lib.vault.finish_link(
                     &mut lib.store,
                     vault_epoch,
                     kek,
                     crate::vault::LinkAccount { email: &email, key },
-                    new_recovery,
+                    None,
                     clock::now(),
                 );
                 cx.emit(LibraryEvent::VaultChanged);
@@ -615,11 +568,9 @@ impl Library {
                 if result == LinkResult::Linked {
                     lib.vault_account_problem = None;
                     lib.touch_vault();
+                    lib.record_vault_meta_and_items_sync(cx);
                 }
-                let shown = (result == LinkResult::Linked)
-                    .then(|| recovery.map(|(_, key)| key))
-                    .flatten();
-                anyhow::Ok((result, shown))
+                anyhow::Ok((result, None))
             })?
         })
     }
@@ -742,14 +693,16 @@ impl Library {
         cx: &mut Context<Self>,
     ) -> Result<()> {
         self.vault.delete(&mut self.store, ids)?;
-        for id in ids {
-            self.record_sync(
-                ottero_sync_protocol::Collection::Vault,
-                &id.to_string(),
-                &["record"],
-                true,
-                &serde_json::json!({}),
-            );
+        if self.vault.opener() == Some(Opener::Account) {
+            for id in ids {
+                self.record_sync(
+                    ottero_sync_protocol::Collection::Vault,
+                    &id.to_string(),
+                    &["record"],
+                    true,
+                    &serde_json::json!({}),
+                );
+            }
         }
         cx.emit(LibraryEvent::VaultChanged);
         Ok(())

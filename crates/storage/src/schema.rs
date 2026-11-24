@@ -22,6 +22,9 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../migrations/0011_developer.sql")),
         M::up(include_str!("../migrations/0012_vault_account.sql")),
         M::up(include_str!("../migrations/0013_sync.sql")),
+        M::up(include_str!(
+            "../migrations/0014_vault_account_optional_recovery.sql"
+        )),
     ])
 }
 

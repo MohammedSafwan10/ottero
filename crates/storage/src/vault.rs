@@ -194,8 +194,7 @@ impl Store {
                 account_email = ?1, account_wrapped = ?2,
                 salt = NULL, kdf_memory = NULL, kdf_time = NULL, kdf_lanes = NULL,
                 wrapped_key = NULL, updated_at = ?3
-             WHERE id = 1 AND wrapped_key = ?4
-               AND recovery_salt IS NOT NULL AND recovery_wrapped IS NOT NULL",
+             WHERE id = 1 AND wrapped_key = ?4",
             params![
                 account.email,
                 account.wrapped_key,
@@ -422,17 +421,9 @@ mod tests {
     }
 
     #[test]
-    fn linking_refuses_a_changed_header_and_a_vault_without_recovery() {
+    fn linking_refuses_a_changed_header_and_allows_optional_recovery() {
         let mut store = Store::open_in_memory().expect("store");
         store.save_vault_meta(&meta()).expect("save");
-        // No recovery key and none supplied: refused, nothing written.
-        assert_eq!(
-            store
-                .link_vault_to_account(&[9; 72], &account(), None, 5)
-                .expect("link"),
-            LinkOutcome::Changed
-        );
-        assert_eq!(store.vault_meta().expect("meta"), Some(meta()));
         // The master password changed in the meantime: refused.
         assert_eq!(
             store
@@ -445,16 +436,17 @@ mod tests {
             Some(meta()),
             "recovery not written either"
         );
-        // With a new recovery key in the same transaction: linked.
+        // Linking without a separate local recovery key succeeds (account Emergency Kit covers recovery).
         assert_eq!(
             store
-                .link_vault_to_account(&[9; 72], &account(), Some((&[3; 16], &[4; 75])), 5)
+                .link_vault_to_account(&[9; 72], &account(), None, 5)
                 .expect("link"),
             LinkOutcome::Linked
         );
         let m = store.vault_meta().expect("meta").expect("some");
-        assert_eq!(m.recovery_salt, Some(vec![3; 16]));
+        assert_eq!(m.recovery_salt, None);
         assert_eq!(m.master, None);
+        assert_eq!(m.account, Some(account()));
     }
 
     /// Crash simulation: the second statement of the link fails (an abort
@@ -493,13 +485,16 @@ mod tests {
             ..with_recovery()
         };
         assert!(store.save_vault_meta(&none).is_err());
-        // Account wrapping but no recovery key.
+        // Account wrapping without a separate local recovery key is allowed (v14).
         let no_recovery = VaultMeta {
             master: None,
             account: Some(account()),
             ..meta()
         };
-        assert!(store.save_vault_meta(&no_recovery).is_err());
+        store
+            .save_vault_meta(&no_recovery)
+            .expect("account without local recovery");
+        assert_eq!(store.vault_meta().expect("meta"), Some(no_recovery));
         // Half a master wrapping.
         store.save_vault_meta(&meta()).expect("save");
         assert!(

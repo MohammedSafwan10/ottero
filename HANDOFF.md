@@ -22,9 +22,15 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
     (adopts server-authoritative keys on `PUT /v1/sync/keys` race, byte-budgeted
     push batching, FK-ordered `apply_decrypted_page` before persisting `last_pull_seq`,
     `Zeroizing<String>` payloads, `apply_task` tombstone resurrection guard &
-    `recurrence` sync, `VaultSession::reload_if_unlocked`), non-blocking async
-    `Library::sync_now` + `SyncNow` action + "Sync now" & hosted billing portal
-    actions in Settings → Account.
+    `recurrence` sync, multi-device `vault-meta` sync + automatic unlock/reload
+    on fresh devices), automatic sync (sign-in/unlock trigger, 1.5 s debounced
+    local writes, 60 s background fallback timer, foreground focus sync, and
+    TLS WebSocket live push listener `/v1/sync/ws`), plus non-blocking `SyncNow`
+    & hosted billing portal actions in Settings → Account.
+  - Cloud Passwords UX (migration `0014_vault_account_optional_recovery.sql`):
+    Cloud-linked vaults no longer force a redundant second recovery key screen
+    (Account Emergency Kit covers recovery); v2 backups/archives work with or
+    without a local recovery key.
   - Codebase modularization: split `apps/desktop/src/library.rs` into
     `apps/desktop/src/library/` (9 domain files), `apps/desktop/tests/ui.rs`
     into `apps/desktop/tests/ui/` (8 test modules), and

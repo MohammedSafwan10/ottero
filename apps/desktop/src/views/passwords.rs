@@ -794,10 +794,10 @@ impl PasswordsView {
             _ = this.update_in(cx, |this, window, cx| {
                 this.busy = false;
                 match result {
-                    Ok(recovery) => {
+                    Ok(()) => {
                         this.account_password
                             .update(cx, |i, cx| i.set_value("", window, cx));
-                        this.recovery = Some(recovery);
+                        this.recovery = None;
                         this.recovery_saved = false;
                         this.focus_primary(window, cx);
                     }
@@ -1130,6 +1130,12 @@ impl PasswordsView {
             .vault_linked_email()
             .unwrap_or_default()
             .to_owned();
+        let has_recovery = self.library.read(cx).vault_has_recovery();
+        let fallback_label = if has_recovery {
+            "Use recovery key…"
+        } else {
+            "Can't unlock? Start a new vault…"
+        };
         let body = match screen {
             Screen::UnlockOttero => v_flex()
                 .gap_5()
@@ -1160,7 +1166,7 @@ impl PasswordsView {
                         )
                         .child(self.error_line(cx)),
                 )
-                .child(Self::recovery_link("vault-forgot", "Use recovery key…", cx)),
+                .child(Self::recovery_link("vault-forgot", fallback_label, cx)),
             Screen::SignedOut(email) => v_flex()
                 .gap_5()
                 .child(Self::hero(
@@ -1178,13 +1184,17 @@ impl PasswordsView {
                             window.dispatch_action(Box::new(crate::actions::SignInToCloud), cx)
                         }),
                 )
-                .child(Self::recovery_link("vault-forgot", "Use recovery key…", cx)),
+                .child(Self::recovery_link("vault-forgot", fallback_label, cx)),
             Screen::OtherAccount(linked, current) => v_flex()
                 .gap_5()
                 .child(Self::hero(
                     Lucide::Cloud,
                     "Passwords belongs to another account",
-                    format!("It opens with {linked}, and you're signed in as {current}. Nothing was changed. Sign in as {linked}, or use the recovery key."),
+                    if has_recovery {
+                        format!("It opens with {linked}, and you're signed in as {current}. Nothing was changed. Sign in as {linked}, or use the recovery key.")
+                    } else {
+                        format!("It opens with {linked}, and you're signed in as {current}. Nothing was changed. Sign in as {linked} to open it.")
+                    },
                     cx,
                 ))
                 .child(
@@ -1195,16 +1205,16 @@ impl PasswordsView {
                             window.dispatch_action(Box::new(crate::actions::OpenAccountSettings), cx)
                         }),
                 )
-                .child(Self::recovery_link("vault-forgot", "Use recovery key…", cx)),
+                .child(Self::recovery_link("vault-forgot", fallback_label, cx)),
             _ => v_flex()
                 .gap_5()
                 .child(Self::hero(
                     Lucide::LockKeyhole,
                     "Your account can't open Passwords",
-                    "This account's key doesn't open Passwords on this computer. It may have been linked to an earlier account with the same email, or its file was changed. Nothing was changed. Use its recovery key.",
+                    "This account's key doesn't open Passwords on this computer. It may have been linked to an earlier account with the same email, or its file was changed. Nothing was changed.",
                     cx,
                 ))
-                .child(Self::recovery_link("vault-forgot", "Use recovery key…", cx)),
+                .child(Self::recovery_link("vault-forgot", fallback_label, cx)),
         };
         Self::centered(body).into_any_element()
     }

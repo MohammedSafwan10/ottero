@@ -310,14 +310,14 @@ impl VaultSession {
     }
 
     /// Sets the vault up under an Ottero Cloud account key: no master
-    /// password. The recovery key is required, so the vault never depends
-    /// on the account alone.
+    /// password. A separate local recovery key is optional because the
+    /// Ottero Cloud account has its own Emergency Kit.
     pub fn finish_setup_with_account(
         &mut self,
         store: &mut Store,
         email: &str,
         account_key: &SecretKey,
-        recovery: (KdfInput, &SecretKey),
+        recovery: Option<(KdfInput, &SecretKey)>,
         now: Timestamp,
     ) -> Result<()> {
         if store.vault_meta()?.is_some() {
@@ -326,7 +326,7 @@ impl VaultSession {
         let opener = self.opener_allowed(OpenerEvent::SetUp(Opener::Account))?;
         let vault_key = SecretKey::generate().context("Couldn't get random bytes")?;
         let account = account_wrap(email, account_key, &vault_key)?;
-        let (recovery_salt, recovery_wrapped) = recovery_wrap(Some(recovery), &vault_key)?;
+        let (recovery_salt, recovery_wrapped) = recovery_wrap(recovery, &vault_key)?;
         let at = now.as_millisecond();
         store.save_vault_meta(&VaultMeta {
             version: META_VERSION,
@@ -505,7 +505,7 @@ impl VaultSession {
         }
         let meta = store.vault_meta()?.context("No vault is set up")?;
         let wrap = meta.account.as_ref().context("This vault isn't linked")?;
-        if wrap.email != email {
+        if !wrap.email.eq_ignore_ascii_case(email) {
             return Ok(AccountUnlock::OtherAccount(wrap.email.clone()));
         }
         let Ok(key) = vault_link::unwrap_vault_key(account_key, &wrap.wrapped_key) else {
@@ -649,7 +649,7 @@ impl VaultSession {
                 seal(rkek, vault_key.expose(), RECOVERY_AAD)
                     .context("Couldn't encrypt the vault key")?,
             )),
-            _ => bail!("This vault needs a recovery key before it can be linked."),
+            _ => None,
         };
         let outcome = store.link_vault_to_account(
             &master.wrapped_key,
@@ -1095,14 +1095,13 @@ impl ArchiveFile {
                 file.wrapped_key = hex(&m.wrapped_key);
             }
             (None, Some(a)) => {
-                let (Some(rs), Some(rw)) = (&meta.recovery_salt, &meta.recovery_wrapped) else {
-                    bail!("This vault has no recovery key, so it can't be archived.");
-                };
                 file.version = 2;
                 file.account_email = Some(a.email.clone());
                 file.account_wrapped = Some(hex(&a.wrapped_key));
-                file.recovery_salt = Some(hex(rs));
-                file.recovery_wrapped = Some(hex(rw));
+                if let (Some(rs), Some(rw)) = (&meta.recovery_salt, &meta.recovery_wrapped) {
+                    file.recovery_salt = Some(hex(rs));
+                    file.recovery_wrapped = Some(hex(rw));
+                }
             }
             (None, None) => bail!("This vault has no key to archive."),
         }
@@ -1118,8 +1117,7 @@ impl ArchiveFile {
             2 => {
                 file.account_email.is_some()
                     && file.account_wrapped.is_some()
-                    && file.recovery_salt.is_some()
-                    && file.recovery_wrapped.is_some()
+                    && (file.recovery_salt.is_some() == file.recovery_wrapped.is_some())
             }
             _ => false,
         };
@@ -1127,6 +1125,11 @@ impl ArchiveFile {
             bail!("That isn't an Ottero vault archive");
         }
         Ok(file)
+    }
+
+    #[must_use]
+    pub fn has_recovery(&self) -> bool {
+        self.recovery_salt.is_some() && self.recovery_wrapped.is_some()
     }
 
     #[must_use]
@@ -1861,13 +1864,13 @@ mod tests {
     }
 
     #[test]
-    fn a_vault_without_a_recovery_key_needs_one_to_link() {
+    fn a_vault_without_a_recovery_key_can_link_under_account_emergency_kit() {
         let (mut store, mut v) = unlocked();
         v.lock();
         let ak = account_key(7);
         let (i, epoch) = v.start_link(&store).expect("start");
         let kek = derive(&pw("correct horse"), &i.salt, i.params);
-        assert!(
+        assert_eq!(
             v.finish_link(
                 &mut store,
                 epoch,
@@ -1879,12 +1882,16 @@ mod tests {
                 None,
                 now()
             )
-            .is_err()
+            .expect("link"),
+            LinkResult::Linked
         );
-        assert_eq!(v.state(), LockState::Locked);
-        assert!(
-            unlock(&store, &mut v, "correct horse"),
-            "master password still works"
+        assert_eq!(v.state(), LockState::Unlocked);
+        assert_eq!(v.opener(), Some(Opener::Account));
+        assert!(!VaultSession::has_recovery(&store));
+        v.lock();
+        assert_eq!(
+            v.unlock_with_account(&store, EMAIL, &ak).expect("unlock"),
+            AccountUnlock::Opened
         );
     }
 
@@ -1967,7 +1974,7 @@ mod tests {
         let mut v = VaultSession::load(&store).expect("load");
         let ak = account_key(3);
         let (ri, rkek, rkey) = recovery_key();
-        v.finish_setup_with_account(&mut store, EMAIL, &ak, (ri, &rkek), now())
+        v.finish_setup_with_account(&mut store, EMAIL, &ak, Some((ri, &rkek)), now())
             .expect("setup");
         assert_eq!(v.opener(), Some(Opener::Account));
         let id = v
@@ -2002,7 +2009,7 @@ mod tests {
         let mut store = Store::open_in_memory().expect("store");
         let mut v = VaultSession::load(&store).expect("load");
         let (ri, rkek, rkey) = recovery_key();
-        v.finish_setup_with_account(&mut store, EMAIL, &account_key(3), (ri, &rkek), now())
+        v.finish_setup_with_account(&mut store, EMAIL, &account_key(3), Some((ri, &rkek)), now())
             .expect("setup");
         v.lock();
         let other = account_key(9);
@@ -2035,7 +2042,7 @@ mod tests {
         let mut v = VaultSession::load(&store).expect("load");
         let ak = account_key(3);
         let (ri, rkek, _) = recovery_key();
-        v.finish_setup_with_account(&mut store, EMAIL, &ak, (ri, &rkek), now())
+        v.finish_setup_with_account(&mut store, EMAIL, &ak, Some((ri, &rkek)), now())
             .expect("setup");
         v.lock();
         let mut meta = store.vault_meta().expect("m").expect("m");
@@ -2060,7 +2067,7 @@ mod tests {
         let mut v = VaultSession::load(&store).expect("load");
         let ak = account_key(3);
         let (ri, rkek, rkey) = recovery_key();
-        v.finish_setup_with_account(&mut store, EMAIL, &ak, (ri, &rkek), now())
+        v.finish_setup_with_account(&mut store, EMAIL, &ak, Some((ri, &rkek)), now())
             .expect("setup");
         v.create(&mut store, &login("Bank", "pw-1"), now())
             .expect("a");

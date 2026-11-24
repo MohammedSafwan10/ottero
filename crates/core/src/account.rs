@@ -274,6 +274,11 @@ impl Plan {
     }
 
     #[must_use]
+    pub fn has_cloud(self) -> bool {
+        !matches!(self, Self::Free)
+    }
+
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Self::Free => "Free",

@@ -63,6 +63,18 @@ pub struct SyncClient {
     agent: ureq::Agent,
 }
 
+/// Resolves the sync base URL (allowing `OTTERO_SYNC_URL` in debug builds only).
+#[must_use]
+pub fn resolve_sync_url() -> String {
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var("OTTERO_SYNC_URL")
+        && !url.trim().is_empty()
+    {
+        return url.trim().to_owned();
+    }
+    DEFAULT_SYNC_URL.to_owned()
+}
+
 impl SyncClient {
     /// Creates a client for `base_url`. Requires `https://` except for local
     /// loopback (`127.0.0.1` / `localhost`) in tests and local dev.
@@ -84,13 +96,7 @@ impl SyncClient {
 
     /// Resolves the sync URL (allowing `OTTERO_SYNC_URL` in debug builds).
     pub fn default_client() -> Result<Self, SyncClientError> {
-        #[cfg(debug_assertions)]
-        if let Ok(url) = std::env::var("OTTERO_SYNC_URL")
-            && !url.trim().is_empty()
-        {
-            return Self::new(url.trim());
-        }
-        Self::new(DEFAULT_SYNC_URL)
+        Self::new(&resolve_sync_url())
     }
 
     pub fn get_keys(&self, bearer_token: &str) -> Result<KeysResponse, SyncClientError> {

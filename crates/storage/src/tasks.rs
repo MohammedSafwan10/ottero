@@ -616,6 +616,6 @@ mod tests {
         }
         let store = Store::open(&path).expect("reopen");
         assert_eq!(store.task(task.id()).expect("load"), Some(task));
-        assert_eq!(store.schema_version().expect("version"), 13);
+        assert_eq!(store.schema_version().expect("version"), 14);
     }
 }

@@ -91,6 +91,7 @@ velopack = { version = "=1.2.161", features = ["public-utils"] }
 keyring-core = "1.0.1"
 windows-native-keyring-store = { version = "1.1.0", default-features = false }
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+tungstenite = { version = "0.26", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 # QR code for turning on two-step verification (ADR 0013). No image/SVG features: modules only.
 qrcode = { version = "0.14", default-features = false }
 

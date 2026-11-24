@@ -6,12 +6,42 @@ use ottero_core::{
     HabitRecord, Note, NoteId, Occasion, Priority, Project, ProjectId, Recurrence, Schedule, Task,
     TaskId, TaskRecord, TaskStatus, Timestamp, VaultItemId,
 };
-use ottero_storage::{OutboxEntry, SealedItem, Store};
+use ottero_storage::{AccountWrap, OutboxEntry, SealedItem, Store, VaultMeta};
 use ottero_sync_protocol::{ChangeId, Collection, Hlc, HlcClock, decode_blob, encode_blob};
 use serde::{Deserialize, Serialize};
 
 use crate::sync::client::SyncClientError;
 use crate::sync::engine::DecryptedChange;
+
+/// Reserved `Collection::Vault` item ID carrying the account-wrapped vault key
+/// header (`vault_meta`) so synced Passwords decrypt seamlessly on other devices.
+pub const VAULT_META_SYNC_ID: &str = "vault-meta";
+
+/// Wire payload for [`VAULT_META_SYNC_ID`] inside `Collection::Vault` (v1).
+/// Carries only the already-encrypted `account_wrapped` envelope (never a
+/// plaintext key or local master-password columns).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncVaultMetaPayload {
+    pub version: u32,
+    pub account_email: String,
+    pub account_wrapped_b64: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl SyncVaultMetaPayload {
+    #[must_use]
+    pub fn from_meta(meta: &VaultMeta) -> Option<Self> {
+        let account = meta.account.as_ref()?;
+        Some(Self {
+            version: meta.version,
+            account_email: account.email.clone(),
+            account_wrapped_b64: encode_blob(&account.wrapped_key),
+            created_at: meta.created_at,
+            updated_at: meta.updated_at,
+        })
+    }
+}
 
 /// Wire payload for `Collection::Notes` (v1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -256,6 +286,7 @@ pub fn apply_decrypted_page(
         let c = &changes[i];
         let rank = match c.collection {
             Collection::Projects if !c.deleted => 0,
+            Collection::Vault if c.item_id == VAULT_META_SYNC_ID && !c.deleted => 0,
             Collection::Tasks if !c.deleted => 1,
             Collection::Notes
             | Collection::Events
@@ -625,6 +656,9 @@ fn apply_habit(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
 }
 
 fn apply_vault(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    if change.item_id == VAULT_META_SYNC_ID {
+        return apply_vault_meta(store, change);
+    }
     let id: VaultItemId = change
         .item_id
         .parse()
@@ -647,6 +681,55 @@ fn apply_vault(store: &mut Store, change: &DecryptedChange) -> Result<bool, Sync
         blob,
         updated_at: p.updated_at,
     }])?;
+    Ok(true)
+}
+
+fn apply_vault_meta(store: &mut Store, change: &DecryptedChange) -> Result<bool, SyncClientError> {
+    if change.deleted {
+        return Ok(false);
+    }
+    let p: SyncVaultMetaPayload = serde_json::from_str(&change.payload_json)
+        .map_err(|err| SyncClientError::Decode(err.to_string()))?;
+    if p.version != 1 || p.account_email.trim().is_empty() {
+        return Err(SyncClientError::Decode("invalid vault_meta payload".into()));
+    }
+    let wrapped_key = decode_blob(&p.account_wrapped_b64)?;
+    if wrapped_key.is_empty() {
+        return Err(SyncClientError::Decode(
+            "empty vault_meta wrapped key".into(),
+        ));
+    }
+    if let Some(existing) = store.vault_meta()? {
+        let same_empty_account_vault = existing.master.is_none()
+            && existing
+                .account
+                .as_ref()
+                .is_some_and(|a| a.email.eq_ignore_ascii_case(&p.account_email))
+            && store.vault_items()?.is_empty();
+        if !same_empty_account_vault {
+            return Ok(false);
+        }
+    }
+    if !store.set_field_clock_if_newer(
+        Collection::Vault,
+        VAULT_META_SYNC_ID,
+        "record",
+        &change.hlc,
+    )? {
+        return Ok(false);
+    }
+    store.save_vault_meta(&VaultMeta {
+        version: p.version,
+        master: None,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        recovery_salt: None,
+        recovery_wrapped: None,
+        account: Some(AccountWrap {
+            email: p.account_email.trim().to_ascii_lowercase(),
+            wrapped_key,
+        }),
+    })?;
     Ok(true)
 }
 
@@ -728,6 +811,21 @@ pub fn enqueue_full_snapshot(
             )?;
             count += 1;
         }
+    }
+    if let Some(meta) = store.vault_meta()?
+        && let Some(payload) = SyncVaultMetaPayload::from_meta(&meta)
+    {
+        enqueue_local_change(
+            store,
+            device_id,
+            Collection::Vault,
+            VAULT_META_SYNC_ID,
+            &["record"],
+            false,
+            &payload,
+            now,
+        )?;
+        count += 1;
     }
     for item in store.vault_items()? {
         enqueue_local_change(

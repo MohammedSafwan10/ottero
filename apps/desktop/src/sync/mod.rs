@@ -3,6 +3,7 @@
 pub mod client;
 pub mod engine;
 pub mod record;
+pub mod ws;
 
 pub use client::{DEFAULT_SYNC_URL, SyncClient, SyncClientError};
 pub use engine::{
@@ -11,8 +12,8 @@ pub use engine::{
 };
 pub use record::{
     SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload, SyncTaskPayload,
-    SyncVaultPayload, apply_decrypted_change, apply_decrypted_page, enqueue_full_snapshot,
-    enqueue_local_change,
+    SyncVaultMetaPayload, SyncVaultPayload, VAULT_META_SYNC_ID, apply_decrypted_change,
+    apply_decrypted_page, enqueue_full_snapshot, enqueue_local_change,
 };
 
 #[cfg(test)]
@@ -506,5 +507,72 @@ mod tests {
         assert_eq!(final_a.priority(), Priority::High);
         assert_eq!(final_b.title(), "Ship E2EE sync");
         assert_eq!(final_b.priority(), Priority::High);
+    }
+
+    #[test]
+    fn two_devices_sync_account_wrapped_vault_meta_and_decrypt_passwords() {
+        use crate::vault::{AccountUnlock, VaultSession};
+        use ottero_core::vault::{ItemFields, ItemKind};
+
+        let server = FakeSyncServer::start();
+        let client = SyncClient::new(&server.url).expect("client");
+        let mut raw = ottero_crypto::Zeroizing::new([0x55u8; SecretKey::LEN]);
+        let account_key = SecretKey::from_bytes(&mut raw);
+        let email = "owner@example.com";
+        let t1 = Timestamp::from_millisecond(1_760_000_000_000).expect("ts");
+
+        // Device A creates an account-linked vault (no local recovery key) and a login.
+        let mut store_a = Store::open_in_memory().expect("store a");
+        let mut vault_a = VaultSession::load(&store_a).expect("load a");
+        vault_a
+            .finish_setup_with_account(&mut store_a, email, &account_key, None, t1)
+            .expect("setup a");
+        let mut fields = ItemFields::new(ItemKind::Login);
+        fields.title = "GitHub".into();
+        fields.username = "safwan".into();
+        fields.password = "super-secret-42".into();
+        let item_id = vault_a
+            .create(&mut store_a, &fields, t1)
+            .expect("create item");
+
+        // Snapshot Device A and push to FakeSyncServer.
+        enqueue_full_snapshot(&store_a, "dev-a", t1).expect("snapshot a");
+        sync_once_with_apply(
+            &mut store_a,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-a",
+            &account_key,
+            t1,
+            |store, page| apply_decrypted_page(store, page).map(|_| ()),
+        )
+        .expect("sync a");
+
+        // Device B starts completely fresh (no vault_meta, no items), pulls, and
+        // unlocks Passwords automatically with the same Ottero Cloud account_key!
+        let mut store_b = Store::open_in_memory().expect("store b");
+        sync_once_with_apply(
+            &mut store_b,
+            &client,
+            "tok",
+            "acct-1",
+            "dev-b",
+            &account_key,
+            t1,
+            |store, page| apply_decrypted_page(store, page).map(|_| ()),
+        )
+        .expect("sync b");
+
+        let mut vault_b = VaultSession::load(&store_b).expect("load b");
+        assert_eq!(
+            vault_b
+                .unlock_with_account(&store_b, email, &account_key)
+                .expect("unlock b"),
+            AccountUnlock::Opened
+        );
+        let decrypted = vault_b.item(item_id).expect("synced item decrypted on B");
+        assert_eq!(decrypted.fields().title, "GitHub");
+        assert_eq!(decrypted.fields().password, "super-secret-42");
     }
 }

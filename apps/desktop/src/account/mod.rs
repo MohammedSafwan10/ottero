@@ -1018,6 +1018,11 @@ impl Library {
                         session.sessions = sessions;
                         session.sessions_loaded = true;
                         session.refresh_error = None;
+                        if lib.can_auto_sync() {
+                            lib.ensure_sync_ws(cx);
+                        } else {
+                            lib.stop_sync_ws();
+                        }
                     }
                     Err(ApiError::SessionEnded) => lib.end_account_session(cx),
                     Err(ApiError::Blocked(message)) => {

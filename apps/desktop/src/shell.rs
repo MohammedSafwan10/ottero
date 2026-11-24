@@ -158,6 +158,13 @@ impl AppShell {
                 ) {
                     this.refresh_badges(cx);
                 }
+                if !matches!(event, LibraryEvent::AccountChanged) {
+                    this.library.update(cx, |lib, cx| {
+                        if lib.can_auto_sync() && lib.pending_sync_count() > 0 {
+                            lib.schedule_debounced_sync(cx);
+                        }
+                    });
+                }
             }),
             // ⌘Q or closing the window must not drop typing that is still
             // waiting for the autosave timer, or an unsaved sidebar width.
@@ -185,6 +192,7 @@ impl AppShell {
                     this.habits.update(cx, |habits, cx| habits.reload(cx));
                     this.focus_view.update(cx, |focus, cx| focus.reload(cx));
                     this.refresh_badges(cx);
+                    this.library.update(cx, |lib, cx| lib.sync_on_focus(cx));
                 }
             }),
         ];

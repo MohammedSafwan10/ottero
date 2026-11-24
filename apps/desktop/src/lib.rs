@@ -63,7 +63,7 @@ pub fn start(
     cx: &mut App,
 ) -> Result<(AnyWindowHandle, Entity<AppShell>)> {
     let api = std::sync::Arc::from(account::client::HttpAccountClient::from_env());
-    start_with_account_api(paths, store, api, cx)
+    start_inner(paths, store, api, true, cx)
 }
 
 /// [`start`] with a given Ottero Cloud server, so tests never reach a real
@@ -72,6 +72,16 @@ pub fn start_with_account_api(
     paths: &AppPaths,
     store: Store,
     account_api: std::sync::Arc<dyn account::client::AccountApi>,
+    cx: &mut App,
+) -> Result<(AnyWindowHandle, Entity<AppShell>)> {
+    start_inner(paths, store, account_api, false, cx)
+}
+
+fn start_inner(
+    paths: &AppPaths,
+    store: Store,
+    account_api: std::sync::Arc<dyn account::client::AccountApi>,
+    auto_sync: bool,
     cx: &mut App,
 ) -> Result<(AnyWindowHandle, Entity<AppShell>)> {
     gpui_kit::init(cx);
@@ -89,13 +99,16 @@ pub fn start_with_account_api(
     shell::register_commands(cx);
     holidays::ensure_countries(cx);
 
-    let library = cx.new(|_| {
+    let library = cx.new(|cx| {
         let mut lib = Library::new(store);
         lib.set_archive_dir(paths.data_dir.join("vault-archives"));
         lib.set_account_session(account::AccountSession::new(
             account::store::AccountFile::open(paths.data_dir.join("account.json")),
             account_api,
         ));
+        if auto_sync {
+            lib.enable_auto_sync(cx);
+        }
         lib
     });
     let options = WindowOptions {
