@@ -197,6 +197,16 @@ OTTERO_DEV_ROUTE=calendar OTTERO_DEV_CALENDAR=week cargo run  # debug: calendar 
 
 ## Log
 
+### 2026-11-24: Per-collection sync crypto + migration 0013 (`sync_state`, `sync_outbox`)
+
+- `ottero_crypto::sync`: HKDF-SHA256 collection-key wrapping (`wrap_collection_key`
+  / `unwrap_collection_key`, bound per collection code in AAD) and item payload
+  sealing (`seal_sync_item` / `open_sync_item`, zeroizing plaintext).
+- Migration `0013_sync.sql` + `ottero_storage::sync`: `sync_state` singleton
+  cursor, `sync_collection_keys`, `sync_outbox` (HLC-ordered batch drain + ack),
+  and `sync_field_clocks` (strict per-field LWW `set_field_clock_if_newer`).
+- Verified with `./scripts/check.sh` (new crypto + storage unit tests pass).
+
 ### 2026-11-24: `crates/sync-protocol` (Plan 06, step 5 foundation)
 
 - Added IO-free shared crate `crates/sync-protocol` (`ottero-sync-protocol`)

@@ -5431,6 +5431,7 @@ version = "0.1.3"
 dependencies = [
  "jiff",
  "ottero-core",
+ "ottero-sync-protocol",
  "rusqlite",
  "rusqlite_migration",
  "serde_json",

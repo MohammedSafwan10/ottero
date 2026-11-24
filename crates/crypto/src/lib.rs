@@ -16,6 +16,7 @@ mod envelope;
 mod error;
 mod kdf;
 mod key;
+pub mod sync;
 pub mod vault_link;
 
 pub use envelope::{ENVELOPE_OVERHEAD, open, seal};

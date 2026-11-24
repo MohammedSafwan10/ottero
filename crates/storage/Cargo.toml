@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 ottero-core.workspace = true
+ottero-sync-protocol.workspace = true
 rusqlite.workspace = true
 rusqlite_migration.workspace = true
 jiff.workspace = true

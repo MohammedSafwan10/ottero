@@ -12,6 +12,7 @@ mod focus;
 mod habits;
 mod notes;
 mod schema;
+mod sync;
 mod tasks;
 mod vault;
 
@@ -21,6 +22,7 @@ use rusqlite::Connection;
 
 pub use error::{StorageError, StorageResult};
 pub use notes::NoteSummary;
+pub use sync::{OutboxEntry, SyncState, WrappedCollectionKey};
 pub use tasks::{Progress, TaskCounts, TaskFilter};
 pub use vault::{AccountWrap, LinkOutcome, MasterWrap, SealedItem, VaultMeta};
 
