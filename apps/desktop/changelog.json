@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.4.1",
+    "date": "2026-11-25",
+    "title": "Live Cross-Device Note Sync",
+    "summary": "Open notes now refresh live when remote sync updates arrive, with faster 500 ms cross-device push.",
+    "sections": [
+      {
+        "title": "Improved",
+        "emoji": "⚡",
+        "items": [
+          "Live-refreshes the open note editor in place when a synced update arrives from another device, without losing scroll position or clobbering active typing.",
+          "Tightened automatic cloud sync debounce from 1.5 s to 500 ms for sub-second cross-device updates."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.4.0",
     "date": "2026-11-25",
     "title": "Complete Quiet Alabaster & Smoked Obsidian Redesign",

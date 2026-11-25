@@ -5,8 +5,11 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
 ## Current state (2026-11-25)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
-  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.4.0** (tagged `v0.4.0`).
+  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.4.1** (tagged `v0.4.1`).
   `scripts/check.sh` passes across all workspace crates and UI integration tests.
+  - **Live Cross-Device Note Sync (`0.4.1`):** Open notes live-refresh in place
+    when remote sync updates arrive (`refresh_open_note` with `reloading` guard),
+    and `AUTO_SYNC_DEBOUNCE` tightened from `1.5 s` to `500 ms`.
   - **Complete Quiet Alabaster & Smoked Obsidian Redesign (`0.4.0`):** Elevated
     surfaces across Focus, Calendar, Notes, Passwords, and Developer; responsive
     wrapping headers; refreshed README/docs/Today screenshot; automated

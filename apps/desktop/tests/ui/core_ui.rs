@@ -478,7 +478,7 @@ fn release_history_opens_from_about_and_returns_by_button_or_escape(cx: &mut Tes
             assert!(
                 texts
                     .iter()
-                    .any(|t| t.text() == "Complete Quiet Alabaster & Smoked Obsidian Redesign")
+                    .any(|t| t.text() == "Live Cross-Device Note Sync")
             );
             assert!(texts.iter().any(|t| t.text() == "Installed"));
             w.click("release-0.1.1", cx);
