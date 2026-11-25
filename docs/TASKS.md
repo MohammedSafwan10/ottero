@@ -38,9 +38,10 @@ Calm, organized, not noisy; keyboard path; empty/error states; one source of tru
 - [x] Appearance reorganized: Theme (mode) → Light theme → Dark theme (preview cards in
       each theme's own colors) → Text (fonts, sizes, line spacing, live preview) → Layout →
       Writing and motion → Reset.
-- [x] 20 themes: Ottero + Catppuccin (4), Tokyo Night (3), Gruvbox, Solarized, Everforest,
-      Flexoki, Ayu (light/dark each) from upstream GPUI Kit (Apache-2.0, `themes/community`).
-      One light + one dark choice; Mode picks which shows; switching is instant.
+- [x] Focused house theme pair: **Ottero Light (Quiet Alabaster)** and
+      **Ottero Dark (Smoked Obsidian)** in `crates/ui/themes/ottero.json`.
+      Mode (`System` / `Light` / `Dark`) switches instantly; third-party editor
+      theme packs removed in `0.3.0`.
 - [x] Typography: interface/code fonts and sizes (existing), note line spacing
       (Compact/Comfortable/Relaxed, vendored patch P8). UI test covers theme pick + persistence.
 

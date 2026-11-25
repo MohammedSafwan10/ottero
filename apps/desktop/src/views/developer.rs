@@ -564,12 +564,24 @@ impl DeveloperView {
         cx: &mut Context<Self>,
     ) -> gpui_kit::AnyElement {
         let id = workspace.id();
+        let theme = cx.theme().clone();
+        let card = || {
+            v_flex()
+                .w_full()
+                .p_4()
+                .gap_3()
+                .rounded(theme.radius_lg)
+                .border_1()
+                .border_color(theme.border)
+                .bg(theme.group_box)
+                .when(theme.shadow, |s| s.shadow_xs())
+        };
         v_flex()
             .p_6()
-            .gap_6()
+            .gap_4()
             .max_w(rems(46.))
             .child(
-                v_flex().gap_3().child(section_label("Work", cx)).child(
+                card().child(section_label("Work", cx)).child(
                     h_flex()
                         .gap_2()
                         .flex_wrap()
@@ -594,7 +606,7 @@ impl DeveloperView {
                 ),
             )
             .child(
-                v_flex()
+                card()
                     .gap_2()
                     .child(section_label("Resources", cx))
                     .children(workspace.links().iter().enumerate().map(|(index, link)| {
@@ -652,7 +664,7 @@ impl DeveloperView {
             .when(!workspace.folder().is_empty(), |s| {
                 let folder = std::path::PathBuf::from(workspace.folder());
                 s.child(
-                    v_flex()
+                    card()
                         .gap_2()
                         .child(section_label("Local folder", cx))
                         .child(
@@ -862,6 +874,8 @@ impl Render for DeveloperView {
                 .min_w_0()
                 .child(
                     h_flex()
+                        .w_full()
+                        .flex_wrap()
                         .px_6()
                         .py_4()
                         .gap_2()

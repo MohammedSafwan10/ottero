@@ -381,7 +381,7 @@ impl Render for FocusView {
             ((1.0 - progress) * 100.0).clamp(0.0, 100.0)
         };
         let ring_color = if timer_kind.is_break() {
-            theme.muted_foreground
+            theme.success
         } else {
             theme.primary
         };
@@ -485,15 +485,17 @@ impl Render for FocusView {
                         this.child(
                             h_flex()
                                 .w_full()
+                                .flex_wrap()
                                 .justify_between()
                                 .items_center()
                                 .gap_3()
                                 .px_4()
                                 .py_3()
-                                .rounded(theme.radius)
+                                .rounded(theme.radius_lg)
                                 .border_1()
                                 .border_color(theme.border)
                                 .bg(theme.group_box)
+                                .when(theme.shadow, |s| s.shadow_xs())
                                 .child(
                                     v_flex()
                                         .gap_0p5()
@@ -567,7 +569,12 @@ impl Render for FocusView {
                             .w_full()
                             .items_center()
                             .gap_5()
-                            .py_6()
+                            .p_6()
+                            .rounded(theme.radius_lg)
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.group_box)
+                            .when(theme.shadow, |s| s.shadow_xs())
                             .child(
                                 ProgressCircle::new("focus-progress-ring")
                                     .value(ring_pct)
@@ -808,9 +815,11 @@ impl Render for FocusView {
                             .child(section_label("Today's log", cx))
                             .child(if self.load_error {
                                 div()
-                                    .rounded(theme.radius)
+                                    .rounded(theme.radius_lg)
                                     .border_1()
                                     .border_color(theme.border)
+                                    .bg(theme.group_box)
+                                    .when(theme.shadow, |s| s.shadow_xs())
                                     .child(empty_state(
                                         Lucide::TriangleAlert,
                                         "Couldn't load today's sessions",
@@ -820,9 +829,11 @@ impl Render for FocusView {
                                     .into_any_element()
                             } else if self.sessions_today.is_empty() {
                                 div()
-                                    .rounded(theme.radius)
+                                    .rounded(theme.radius_lg)
                                     .border_1()
                                     .border_color(theme.border)
+                                    .bg(theme.group_box)
+                                    .when(theme.shadow, |s| s.shadow_xs())
                                     .child(empty_state(
                                         Lucide::Timer,
                                         "No sessions today",
@@ -833,9 +844,11 @@ impl Render for FocusView {
                             } else {
                                 v_flex()
                                     .w_full()
-                                    .rounded(theme.radius)
+                                    .rounded(theme.radius_lg)
                                     .border_1()
                                     .border_color(theme.border)
+                                    .bg(theme.group_box)
+                                    .when(theme.shadow, |s| s.shadow_xs())
                                     .children(self.sessions_today.iter().enumerate().map(
                                         |(ix, session)| {
                                             let sid = session.id;

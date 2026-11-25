@@ -3,12 +3,13 @@
 ## Layers
 
 ```
-apps/desktop (GPUI shell, screens, actions)      ← later: apps/mobile, apps/web, server/
+apps/desktop (GPUI shell, screens, actions)      ← later: apps/mobile, apps/web
    │ uses
-   ├── crates/ui       design system (gpui-kit only)
-   ├── crates/storage  SQLite + migrations + FTS5
-   ├── crates/crypto   vault crypto (no UI, no IO)
-   └── crates/core     domain types and rules (no IO)
+   ├── crates/ui            design system (gpui-kit only)
+   ├── crates/storage       SQLite + migrations + FTS5
+   ├── crates/crypto        vault & sync crypto (no UI, no IO)
+   ├── crates/sync-protocol IO-free E2EE sync wire protocol & HLC
+   └── crates/core          domain types and rules (no IO)
 ```
 
 Only `apps/*` and `crates/ui` know about GPUI. Everything a future mobile or web
@@ -22,7 +23,7 @@ user input → View (Entity) → Library method → core rule → Store (SQLite)
                                    └─ emit LibraryEvent ──▶ subscribed views reload
 ```
 
-- `Library` (`apps/desktop/src/library.rs`) is the single owner of the `Store`.
+- `Library` (`apps/desktop/src/library/`) is the single owner of the `Store`.
 - Views keep their own view state (selection, input entities, tab) and re-query
   on `LibraryEvent`. No view caches another view's data.
 - Writes are synchronous single transactions (sub-millisecond in WAL mode). If a
@@ -57,7 +58,7 @@ and the command palette therefore run identical code.
 
 ## Files on disk
 
-Data folder (`Settings → General → Data folder`):
+Data folder (`Settings → Privacy & data → Data folder`):
 
 - `ottero.sqlite3` (+ `-wal`, `-shm`): notes, tasks, events, habits, and the vault (ciphertext only).
 - `vault.json`: vault preferences (auto-lock, clipboard); `vault-archives/*.otvault` (older `.cfvault`/`.ksvault` still open): archived vaults.

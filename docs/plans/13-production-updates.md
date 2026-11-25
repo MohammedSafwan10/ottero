@@ -19,7 +19,7 @@ Ottero rename (ADR 0009): bundle ID `com.nexdark.calmfold` and Velopack packId
 - Preferred installation engines: Sparkle 2 on macOS, Velopack on Windows,
   subject to disposable installed-app prototypes. Reuse the existing action and
   status interface. Never ship two competing automatic installers.
-- Coolify hosts the website at `ottero.nexdark.com`; GitHub hosts versioned
+- `ottero.nexdark.com` hosts the website; GitHub hosts versioned
   release artifacts. A branded feed URL may redirect to the authoritative feed;
   do not independently generate two feeds or re-sign on the web server.
 - Only public keys reach the app or website. Protect release signing credentials

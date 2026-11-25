@@ -1,5 +1,23 @@
 [
   {
+    "version": "0.4.0",
+    "date": "2026-11-25",
+    "title": "Complete Quiet Alabaster & Smoked Obsidian Redesign",
+    "summary": "Brings Notes, Calendar, Focus, Passwords, and Developer up to Ottero's elevated visual language, with responsive headers and automated release publishing.",
+    "sections": [
+      {
+        "title": "Improved",
+        "emoji": "✨",
+        "items": [
+          "Elevated Focus countdown centerpiece and session log cards, with a muted sage break ring and wrapping completion banner.",
+          "Elevated Calendar Agenda day cards and made the Calendar header wrap cleanly on narrower windows.",
+          "Elevated active Notes and Passwords list rows, backlinks footer card, vault lock/setup cards, and Developer project overview cards.",
+          "Refreshed documentation and README for Ottero Cloud sync, focused themes, and automated release publishing."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.3.1",
     "date": "2026-11-25",
     "title": "Responsive Settings and Calmer Notifications",

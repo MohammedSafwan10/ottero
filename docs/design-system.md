@@ -78,13 +78,13 @@ Lucide (1,800+ icons, one consistent stroke style, ISC). Use
 
 ## Settings organization
 
-General (startup), Workspace (sidebar), Appearance, Features (existing Notes,
-Today, Calendar/holiday preferences), Privacy & data (vault security, backups,
-storage), Keyboard, About. Keep future feature preferences under Features;
-only add controls for implemented behavior. Native search spans all categories,
-including preferences for features hidden from the main sidebar. Customize
-sidebar (palette or More) opens Workspace directly. The selected startup page
-may be hidden without being pinned or opening it immediately.
+Account, General (startup), Workspace (sidebar), Appearance, Features (existing
+Notes, Today, Calendar/holiday preferences), Privacy & data (vault security,
+backups, storage), Keyboard, About. Keep future feature preferences under
+Features; only add controls for implemented behavior. Native search spans all
+categories, including preferences for features hidden from the main sidebar.
+Customize sidebar (palette or More) opens Workspace directly. The selected
+startup page may be hidden without being pinned or opening it immediately.
 
 ## Feedback rules (`ottero_ui::feedback`)
 
@@ -93,8 +93,12 @@ may be hidden without being pinned or opening it immediately.
 | Reversible (move to trash, complete) | Do it now, `undo_toast("… moved to trash.")` |
 | Permanent (delete forever, empty trash) | `confirm_destructive` with a verb button ("Delete", "Empty trash"), Cancel default, Escape cancels |
 | Failure | `error_toast` with a user-safe message |
+| Status / informational | `info_toast` (deduplicated by message) |
 | Editing or deleting one occurrence of a repeating event | `ask_repeat_scope` ("Only this event" primary, "All events", Cancel); a drag moves only that one and offers Undo |
 
+Toasts sit bottom-right, capped at `max_items = 3` and `340 px` wide, with
+deduplication IDs on update, clipboard, error, undo, and info notices so
+repeated alerts replace in place instead of stacking.
 Never confirm reversible actions. Never use "OK" or "Yes" as the confirm label.
 
 ## Panels

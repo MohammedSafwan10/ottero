@@ -831,13 +831,26 @@ impl PasswordsView {
         cx.notify();
     }
 
-    fn centered(content: impl IntoElement) -> impl IntoElement {
+    fn centered(content: impl IntoElement, cx: &App) -> impl IntoElement {
+        let theme = cx.theme();
         v_flex()
             .size_full()
             .items_center()
             .justify_center()
-            .p_8()
-            .child(v_flex().w_full().max_w(rems(26.)).gap_5().child(content))
+            .p_6()
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(rems(28.))
+                    .p_8()
+                    .gap_5()
+                    .rounded(theme.radius_lg)
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.group_box)
+                    .when(theme.shadow, |s| s.shadow_xs())
+                    .child(content),
+            )
     }
 
     fn hero(
@@ -956,6 +969,7 @@ impl PasswordsView {
                             .on_click(cx.listener(|this, _, window, cx| this.suggest_passphrase(window, cx))),
                     ),
                 ),
+            cx,
         )
         .into_any_element()
     }
@@ -1011,6 +1025,7 @@ impl PasswordsView {
                             })),
                     ),
                 ),
+            cx,
         )
         .into_any_element()
     }
@@ -1078,6 +1093,7 @@ impl PasswordsView {
                         )
                         .child(self.error_line(cx)),
                 ),
+            cx,
         )
         .into_any_element()
     }
@@ -1116,6 +1132,7 @@ impl PasswordsView {
                         .child(self.error_line(cx)),
                 )
                 .child(Self::recovery_link("vault-forgot", "Forgot master password?", cx)),
+            cx,
         )
         .into_any_element()
     }
@@ -1216,7 +1233,7 @@ impl PasswordsView {
                 ))
                 .child(Self::recovery_link("vault-forgot", fallback_label, cx)),
         };
-        Self::centered(body).into_any_element()
+        Self::centered(body, cx).into_any_element()
     }
 
     /// After setup (or "Create new recovery key"): show the key once.
@@ -1263,6 +1280,7 @@ impl PasswordsView {
                             cx.notify();
                         })),
                 ),
+            cx,
         )
         .into_any_element()
     }
@@ -1323,9 +1341,15 @@ impl PasswordsView {
             .gap_3()
             .items_center()
             .rounded(theme.radius)
+            .border_1()
+            .border_color(if selected {
+                theme.border
+            } else {
+                gpui_kit::transparent_black()
+            })
             .map(|s| {
                 if selected {
-                    s.bg(theme.list_active)
+                    s.bg(theme.group_box).when(theme.shadow, |s| s.shadow_xs())
                 } else {
                     s.hover(|s| s.bg(theme.list_hover))
                 }

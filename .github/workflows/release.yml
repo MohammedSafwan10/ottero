@@ -185,3 +185,79 @@ jobs:
           retention-days: 7
           path: dist/*
           if-no-files-found: error
+  publish:
+    needs: [catalog]
+    if: ${{ !cancelled() && needs.catalog.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Publish to calmfold-releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_REPO: MohammedSafwan10/calmfold-releases
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::RELEASES_TOKEN secret is not set; skipping automatic publication to $RELEASES_REPO."
+            exit 0
+          fi
+      - uses: actions/checkout@v4
+        if: ${{ env.GH_TOKEN != '' || true }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-release
+          path: release-dist
+      - name: Package source archive, checksums, and publish atomically
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          RELEASES_REPO: MohammedSafwan10/calmfold-releases
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            exit 0
+          fi
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version'])")
+          TAG="v${VERSION}"
+          cp LICENSE NOTICE release-dist/
+          git archive --format=tar.gz --prefix="ottero-${VERSION}/" HEAD -o "release-dist/Ottero-${VERSION}-source.tar.gz"
+          (cd release-dist && sha256sum appcast.xml "Calmfold-${VERSION}-full.nupkg" LICENSE NOTICE "Ottero-${VERSION}-macos-arm64.zip" "Ottero-${VERSION}-source.tar.gz" Ottero-win-Portable.zip Ottero-win-Setup.exe stable.json stable.json.minisig > SHA256SUMS)
+          python3 - "$VERSION" "$SHA" "$RUN_ID" "$RELEASES_REPO" > /tmp/release-notes.md <<'PY'
+          import json, sys
+          version, sha, run_id, repo = sys.argv[1:5]
+          tag = f"v{version}"
+          entries = json.load(open("apps/desktop/changelog.json", encoding="utf-8"))
+          entry = next((e for e in entries if e["version"] == version), None)
+          lines = []
+          if entry:
+              lines.append(f"## {entry['title']}\n")
+              lines.append(f"{entry['summary']}\n")
+              for sec in entry.get("sections", []):
+                  lines.append(f"## {sec['title']}\n")
+                  for item in sec.get("items", []):
+                      lines.append(f"- {item}")
+                  lines.append("")
+          base = f"https://github.com/{repo}/releases/download/{tag}"
+          lines += [
+              "## Download\n",
+              f"- [Mac · Apple Silicon]({base}/Ottero-{version}-macos-arm64.zip)",
+              f"- [Windows · x64 installer]({base}/Ottero-win-Setup.exe)",
+              f"- [Windows · portable]({base}/Ottero-win-Portable.zip)",
+              f"- [Application source · GPLv3]({base}/Ottero-{version}-source.tar.gz)\n",
+              "Or go to [ottero.nexdark.com](https://ottero.nexdark.com).\n",
+              f"Already using Ottero? **Settings → About → Check now** downloads and installs `{version}` automatically.\n",
+              "Publisher signing: these builds are not yet Apple-notarized or Windows Authenticode-signed, so the OS may warn on first installation. Update signatures are verified separately (`stable.json.minisig`, Sparkle EdDSA for the Mac appcast).\n",
+              "## Source\n",
+              "Ottero is GPL-3.0-only. License, dependency notices and the exact source location are included in both platform packages.\n",
+              f"[Exact build source](https://github.com/MohammedSafwan10/ottero/tree/{sha}) · [Verification run](https://github.com/MohammedSafwan10/ottero/actions/runs/{run_id})\n",
+              "Personal data stays local. No account is required.",
+          ]
+          print("\n".join(lines))
+          PY
+          if gh release view "$TAG" --repo "$RELEASES_REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists in $RELEASES_REPO; refusing to overwrite."
+            exit 0
+          fi
+          gh release create "$TAG" --repo "$RELEASES_REPO" --draft --title "Ottero $TAG" --notes-file /tmp/release-notes.md release-dist/*
+          gh release edit "$TAG" --repo "$RELEASES_REPO" --draft=false --latest

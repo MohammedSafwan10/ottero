@@ -924,7 +924,16 @@ impl NotesView {
                 .py_2()
                 .gap_0p5()
                 .rounded(theme.radius)
-                .when(active, |this| this.bg(theme.list_active))
+                .border_1()
+                .border_color(if active {
+                    theme.border
+                } else {
+                    gpui_kit::transparent_black()
+                })
+                .when(active, |this| {
+                    this.bg(theme.group_box)
+                        .when(theme.shadow, |s| s.shadow_xs())
+                })
                 .when(!active, |this| this.hover(|this| this.bg(theme.list_hover)))
                 .on_click(move |_, window, cx| {
                     _ = view.update(cx, |this, cx| this.open_note(id, window, cx));
@@ -1343,9 +1352,12 @@ impl NotesView {
         let view = cx.entity().downgrade();
         v_flex()
             .gap_1()
-            .pt_4()
-            .border_t_1()
+            .p_4()
+            .rounded(theme.radius_lg)
+            .border_1()
             .border_color(theme.border)
+            .bg(theme.group_box)
+            .when(theme.shadow, |s| s.shadow_xs())
             .child(section_label(
                 format!(
                     "Linked from {} note{}",

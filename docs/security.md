@@ -268,4 +268,5 @@ be described as proven merely because a clean upgrade passed.
 ## Sync (Phase 4)
 
 End-to-end encrypted: the server stores opaque blobs and metadata needed for
-ordering only. TLS via Coolify/Traefik. Account auth separate from the vault key.
+ordering only. Transport is HTTPS/WSS (TLS) only. Account auth is separate from
+the vault key.

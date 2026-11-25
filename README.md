@@ -47,15 +47,18 @@ the app under **What’s new**.
 | **Passwords** | An encrypted vault, one-time codes, password generation, recovery keys and encrypted backups |
 | **Developer** | Projects, useful links, setup notes, tasks and encrypted environment sets with `.env` import/export |
 
-Choose your visible sidebar tools, their order and your startup page. Themes,
+Choose your visible sidebar tools, their order and your startup page. Curated
+**Ottero Light (Quiet Alabaster)** and **Ottero Dark (Smoked Obsidian)** themes,
 fonts and keyboard shortcuts help the workspace fit the way you work.
 
 ## Local data, clear boundaries
 
-Personal content stays local; release checks contact GitHub. There is no built-in
-cross-device sync yet. Notes, tasks and calendar data are **not encrypted by the
-app**. The vault uses Argon2id and XChaCha20-Poly1305. Keep a device backup and
-store your vault recovery key somewhere safe.
+Personal content stays local by default; release checks contact GitHub. Optional
+**Ottero Cloud** sync encrypts notes, tasks, calendar, habits, focus and
+passwords end to end before they leave your device. Local notes, tasks and
+calendar data on disk are **not encrypted by the app**; the password vault uses
+Argon2id and XChaCha20-Poly1305. Keep a device backup and store your Emergency
+Kit or vault recovery key somewhere safe.
 
 See the [security design](docs/security.md) for the threat model and recovery
 limits, or [report a vulnerability privately](SECURITY.md).

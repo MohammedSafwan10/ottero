@@ -5,8 +5,12 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
 ## Current state (2026-11-25)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
-  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.3.1** (tagged `v0.3.1`).
+  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.4.0** (tagged `v0.4.0`).
   `scripts/check.sh` passes across all workspace crates and UI integration tests.
+  - **Complete Quiet Alabaster & Smoked Obsidian Redesign (`0.4.0`):** Elevated
+    surfaces across Focus, Calendar, Notes, Passwords, and Developer; responsive
+    wrapping headers; refreshed README/docs/Today screenshot; automated
+    `publish` job in `.github/workflows/release.yml` for `calmfold-releases`.
   - **Responsive Settings & Calmer Notifications (`0.3.1`):** Stacked wide Settings
     rows (`Updates`, `Interface`/`Code` fonts, `Line spacing`, `Content width`,
     `Lock after`, `Unlock with`) and wrapped Account action rows so buttons like
