@@ -883,11 +883,7 @@ impl Render for DeveloperView {
                         .justify_between()
                         .child(page_header(
                             workspace.project().name().to_owned(),
-                            Some(if workspace.is_archived() {
-                                "Archived".into()
-                            } else {
-                                "Project workspace".into()
-                            }),
+                            workspace.is_archived().then(|| "Archived".into()),
                             cx,
                         ))
                         .child(

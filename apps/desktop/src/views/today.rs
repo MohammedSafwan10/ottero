@@ -23,7 +23,7 @@ use gpui_kit::{
     AnyElement, App, Context, Corners, Div, ElementId, Entity, EventEmitter, FocusHandle,
     Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Render,
     SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Task as GpuiTask,
-    TestSupportExt as _, Window, div, px, relative, rems,
+    TestSupportExt as _, Window, div, px, rems,
 };
 use ottero_core::habit_insights::{HabitHistory, day_rate};
 use ottero_core::{Date, DateTime, Occurrence, Task, TaskId, clock};
@@ -281,22 +281,6 @@ impl TodayView {
             .child(text.into())
     }
 
-    fn meter(value: f32, cx: &App) -> Div {
-        let theme = cx.theme();
-        div()
-            .h(rems(0.25))
-            .w_full()
-            .rounded_full()
-            .bg(theme.muted)
-            .child(
-                div()
-                    .h_full()
-                    .w(relative(value.clamp(0., 1.)))
-                    .rounded_full()
-                    .bg(theme.primary),
-            )
-    }
-
     // ---- Sections --------------------------------------------------------
 
     fn glance(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -339,11 +323,6 @@ impl TodayView {
         };
         let due: Vec<&HabitSummary> = self.habits.iter().filter(|h| h.due_today).collect();
         let done = due.iter().filter(|h| h.done_today()).count();
-        let share = if due.is_empty() {
-            0.
-        } else {
-            done as f32 / due.len() as f32
-        };
         let (habit_value, habit_note) = if self.habits.is_empty() {
             ("No habits".to_owned(), "Add one in Habits".to_owned())
         } else if due.is_empty() {
@@ -448,7 +427,7 @@ impl TodayView {
                 "Habits",
                 habit_value,
                 habit_note,
-                (!due.is_empty()).then(|| div().pt_1().child(Self::meter(share, cx))),
+                None,
                 Route::Habits,
                 false,
                 cx,
@@ -1205,19 +1184,6 @@ impl Render for TodayView {
                 .map(|(s, _)| s)
                 .collect();
 
-        let event_count = self.today_events().len();
-        let task_left = self.counts.due_today + self.counts.overdue;
-        let habit_due = self.habits.iter().filter(|h| h.due_today).count();
-        let habit_done = self
-            .habits
-            .iter()
-            .filter(|h| h.due_today && h.done_today())
-            .count();
-        let summary = format!(
-            "{event_count} {} · {task_left} {} · {habit_done}/{habit_due} habits",
-            if event_count == 1 { "event" } else { "events" },
-            if task_left == 1 { "task" } else { "tasks" },
-        );
         let sync_pill = {
             let lib = self.library.read(cx);
             let signed_in = lib.account().signed_in_email().is_some();
@@ -1285,12 +1251,6 @@ impl Render for TodayView {
                                     .child(self.greeting()),
                             )
                             .children(sync_pill),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(summary),
                     ),
             )
             .child(

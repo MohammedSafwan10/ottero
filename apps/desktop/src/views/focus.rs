@@ -360,19 +360,21 @@ impl Render for FocusView {
             .filter(|s| s.kind == FocusKind::Focus)
             .count();
 
-        let subtitle: SharedString = if focus_count_today == 0 {
-            "Quiet space for deep work".into()
+        let subtitle: Option<SharedString> = if focus_count_today == 0 {
+            None
         } else {
             let word = if focus_count_today == 1 {
                 "session"
             } else {
                 "sessions"
             };
-            format!(
-                "Today · {} ({focus_count_today} {word})",
-                format_duration(focus_secs_today)
+            Some(
+                format!(
+                    "Today · {} ({focus_count_today} {word})",
+                    format_duration(focus_secs_today)
+                )
+                .into(),
             )
-            .into()
         };
 
         let ring_pct = if is_idle {
@@ -414,7 +416,7 @@ impl Render for FocusView {
                             .justify_between()
                             .items_center()
                             .gap_3()
-                            .child(page_header("Focus", Some(subtitle), cx))
+                            .child(page_header("Focus", subtitle, cx))
                             .child(
                                 v_flex().id("focus-mode-control").test_support().items_end()
                                     .when(!is_idle, |control| control.opacity(0.7).tooltip(|window, cx| {
