@@ -55,6 +55,7 @@ const AUTOSAVE_DELAY: Duration = Duration::from_millis(500);
 const SEARCH_LIMIT: usize = 200;
 
 /// The note currently loaded in the editor.
+#[derive(Clone)]
 struct OpenNote {
     id: NoteId,
     title: String,
@@ -79,6 +80,8 @@ pub struct NotesView {
     open: Option<OpenNote>,
     backlinks: Vec<NoteSummary>,
     dirty: bool,
+    /// Suppresses `schedule_save` while loading or live-refreshing a note.
+    reloading: bool,
     pending_save: Option<Task<()>>,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -108,9 +111,10 @@ impl NotesView {
 
         let subscriptions = vec![
             cx.observe(&layout, |_, _, cx| cx.notify()),
-            cx.subscribe(&library, |this, _, event, cx| {
+            cx.subscribe_in(&library, window, |this, _, event, window, cx| {
                 if *event == LibraryEvent::NotesChanged {
                     this.reload_list(cx);
+                    this.refresh_open_note(window, cx);
                 }
             }),
             cx.subscribe(&search, |this, _, event, cx| {
@@ -160,6 +164,7 @@ impl NotesView {
             open: None,
             backlinks: Vec::new(),
             dirty: false,
+            reloading: false,
             pending_save: None,
             focus: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -656,8 +661,65 @@ impl NotesView {
         };
     }
 
+    /// Live-refreshes the currently open note when a remote sync (or external
+    /// mutation) updates SQLite while the editor is clean. Preserves scroll
+    /// position and avoids triggering an echo-save loop.
+    fn refresh_open_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dirty {
+            return;
+        }
+        let Some(open) = self.open.clone() else {
+            return;
+        };
+        let note = match self.library.read(cx).note(open.id) {
+            Ok(Some(note)) => note,
+            Ok(None) => {
+                self.open = None;
+                self.pending_save = None;
+                self.backlinks.clear();
+                self.mentions.clear();
+                cx.notify();
+                return;
+            }
+            Err(_) => return,
+        };
+        let title_text = if note.title() == ottero_core::note::UNTITLED {
+            ""
+        } else {
+            note.title()
+        };
+        let title_changed = self.title.read(cx).value().as_ref() != title_text;
+        let body_changed = self.body.read(cx).text(cx) != note.body();
+        let meta_changed = open.title != note.title()
+            || open.pinned != note.is_pinned()
+            || open.trashed != note.is_trashed();
+        if !title_changed && !body_changed && !meta_changed {
+            self.reload_backlinks(cx);
+            return;
+        }
+        self.reloading = true;
+        if title_changed {
+            self.title
+                .update(cx, |t, cx| t.set_value(title_text.to_owned(), window, cx));
+        }
+        if body_changed {
+            self.body
+                .update(cx, |b, cx| b.set_note(Some(open.id), note.body(), cx));
+        }
+        self.open = Some(OpenNote {
+            id: open.id,
+            title: note.title().to_owned(),
+            pinned: note.is_pinned(),
+            trashed: note.is_trashed(),
+        });
+        self.dirty = false;
+        self.reloading = false;
+        self.reload_backlinks(cx);
+        cx.notify();
+    }
+
     fn schedule_save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.open.as_ref().is_none_or(|o| o.trashed) {
+        if self.reloading || self.open.as_ref().is_none_or(|o| o.trashed) {
             return;
         }
         self.dirty = true;

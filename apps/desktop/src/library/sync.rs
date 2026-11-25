@@ -13,7 +13,7 @@ use crate::vault::VaultSession;
 
 use super::{Library, LibraryEvent};
 
-const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(1_500);
+const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(500);
 const AUTO_SYNC_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const FOCUS_SYNC_MIN_GAP_MS: i64 = 10_000;
 

@@ -506,3 +506,64 @@ fn today_shows_the_week_and_the_next_seven_days(cx: &mut TestAppContext) {
     })
     .expect("window");
 }
+
+#[gpui_kit::test]
+fn synced_note_update_refreshes_open_editor_live(cx: &mut TestAppContext) {
+    let app = launch(cx);
+    let lib = library(&app, cx);
+    let id = cx.update(|cx| {
+        lib.update(cx, |l, cx| {
+            let id = l.create_note("Sync test", cx).expect("create");
+            l.edit_note(id, "Sync test", "Initial text", cx)
+                .expect("edit");
+            id
+        })
+    });
+
+    dispatch(&app, cx, GoNotes);
+    cx.update_window(app.window, |_, window, cx| {
+        app.shell
+            .read(cx)
+            .notes()
+            .clone()
+            .update(cx, |n, cx| n.open_note(id, window, cx));
+    })
+    .expect("window");
+    cx.run_until_parked();
+    assert_eq!(
+        cx.read(|cx| app.shell.read(cx).notes().read(cx).body_text(cx)),
+        "Initial text"
+    );
+
+    // Simulate a remote sync writing a newer title and body to SQLite and
+    // emitting LibraryEvent::NotesChanged while the note is open and clean.
+    cx.update(|cx| {
+        lib.update(cx, |l, cx| {
+            l.edit_note(id, "Synced title", "Updated from another device", cx)
+                .expect("remote edit");
+        })
+    });
+    cx.run_until_parked();
+
+    assert_eq!(
+        cx.read(|cx| app.shell.read(cx).notes().read(cx).open_note_title(cx)),
+        Some("Synced title".to_owned())
+    );
+    assert_eq!(
+        cx.read(|cx| app.shell.read(cx).notes().read(cx).body_text(cx)),
+        "Updated from another device"
+    );
+
+    // Remote permanent deletion clears the open editor cleanly.
+    cx.update(|cx| {
+        lib.update(cx, |l, cx| {
+            l.trash_note(id, cx).expect("trash");
+            l.delete_note_permanently(id, cx).expect("delete");
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        cx.read(|cx| app.shell.read(cx).notes().read(cx).open_note_id()),
+        None
+    );
+}
