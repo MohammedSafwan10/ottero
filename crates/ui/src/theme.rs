@@ -1,9 +1,7 @@
-//! The themes Ottero ships and how a light/dark pair is installed.
+//! The focused house themes Ottero ships (Ottero Light and Ottero Dark).
 //!
-//! `ottero.json` holds the house themes (Ottero Light/Dark). The
-//! community sets under `themes/community/` are upstream GPUI Kit themes,
-//! copied unchanged. The user picks one light and one dark theme; the mode
-//! (System/Light/Dark) chooses which of the two is shown.
+//! `ottero.json` holds both tuned themes: Quiet Alabaster (Light) and Smoked
+//! Obsidian (Dark). The user picks System, Light, or Dark mode.
 
 use std::rc::Rc;
 
@@ -13,17 +11,8 @@ use gpui_kit::{App, SharedString};
 pub const LIGHT: &str = "Ottero Light";
 pub const DARK: &str = "Ottero Dark";
 
-/// Every bundled theme file, house themes first.
-const THEME_FILES: &[&str] = &[
-    include_str!("../themes/ottero.json"),
-    include_str!("../themes/community/catppuccin.json"),
-    include_str!("../themes/community/tokyonight.json"),
-    include_str!("../themes/community/gruvbox.json"),
-    include_str!("../themes/community/solarized.json"),
-    include_str!("../themes/community/everforest.json"),
-    include_str!("../themes/community/flexoki.json"),
-    include_str!("../themes/community/ayu.json"),
-];
+/// Every bundled theme file.
+const THEME_FILES: &[&str] = &[include_str!("../themes/ottero.json")];
 
 /// A theme the user can pick, for the settings cards.
 #[derive(Debug, Clone)]
@@ -128,14 +117,8 @@ mod tests {
         let names: Vec<_> = themes.iter().map(|t| t.name.to_string()).collect();
         assert!(names.contains(&LIGHT.to_owned()));
         assert!(names.contains(&DARK.to_owned()));
-        assert!(
-            themes.iter().filter(|t| t.mode.is_dark()).count() >= 6,
-            "{names:?}"
-        );
-        assert!(
-            themes.iter().filter(|t| !t.mode.is_dark()).count() >= 6,
-            "{names:?}"
-        );
+        assert_eq!(themes.iter().filter(|t| t.mode.is_dark()).count(), 1);
+        assert_eq!(themes.iter().filter(|t| !t.mode.is_dark()).count(), 1);
         let mut unique = names.clone();
         unique.sort();
         unique.dedup();

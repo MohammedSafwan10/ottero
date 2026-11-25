@@ -13,19 +13,18 @@ This file records Ottero's choices on top of them.
 
 ## Theme
 
-Themes: Ottero Light/Dark (house) plus community GPUI Kit sets in
-`crates/ui/themes/community/` (unchanged copies, Apache-2.0). Users pick one
-light and one dark theme on cards that preview each theme in its own colors;
-the Mode (System/Light/Dark) decides which one shows. Every theme must define
-`highlight.syntax` (a test enforces it).
+Ottero ships one curated house theme pair in `crates/ui/themes/ottero.json`:
+**Ottero Light** (Quiet Alabaster: warm stone-ivory sidebar, alabaster paper
+canvas, white elevated cards, charcoal-ink primary CTA, muted sage/ochre/slate
+data tints) and **Ottero Dark** (Smoked Obsidian: recessed `#0e0f11` sidebar,
+`#131417` canvas, elevated `#1a1c20` cards, crisp off-white primary CTA, muted
+sage/sand/steel data tints). Mode (System/Light/Dark) switches between them.
+Every theme defines `highlight.syntax` (enforced by test).
 
-
-- `crates/ui/themes/ottero.json`: **Ottero Dark** (default via System on
-  dark Macs) and **Ottero Light**. Radius 8 / 12 (large), shadows off.
+- Radius 10 / 14 (large), subtle card elevation (`shadow: true` in light mode).
 - Feature code uses tokens only: `background`, `foreground`, `muted_foreground`,
-  `border`, `list_hover`, `list_active`, `group_box`, `sidebar_*`, `danger`...
-- Adding a theme: add an entry to the JSON (or a new JSON in a user themes
-  folder later) and expose it in Settings → Appearance.
+  `border`, `list_hover`, `list_active`, `group_box`, `sidebar_*`, `success`,
+  `warning`, `info`, `danger`...
 
 ## Appearance settings (user-controlled)
 

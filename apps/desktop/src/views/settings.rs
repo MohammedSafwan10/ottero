@@ -149,33 +149,15 @@ impl SettingsView {
         .description("System follows your computer's light or dark setting.")
         .keywords(["theme", "dark mode", "light mode", "appearance"]);
 
-        let light =
-            SettingItem::render(|_, _, cx| theme_cards(ThemeMode::Light, cx).into_any_element())
-                .keywords([
-                    "theme",
-                    "light",
-                    "colors",
-                    "catppuccin",
-                    "solarized",
-                    "gruvbox",
-                    "flexoki",
-                    "ayu",
-                    "everforest",
-                ]);
-        let dark =
-            SettingItem::render(|_, _, cx| theme_cards(ThemeMode::Dark, cx).into_any_element())
-                .keywords([
-                    "theme",
-                    "dark",
-                    "colors",
-                    "catppuccin",
-                    "tokyo night",
-                    "solarized",
-                    "gruvbox",
-                    "flexoki",
-                    "ayu",
-                    "everforest",
-                ]);
+        let previews = SettingItem::render(|_, _, cx| {
+            h_flex()
+                .flex_wrap()
+                .gap_3()
+                .child(theme_cards(ThemeMode::Light, cx))
+                .child(theme_cards(ThemeMode::Dark, cx))
+                .into_any_element()
+        })
+        .keywords(["theme", "light", "dark", "colors", "ottero"]);
 
         let ui_font = SettingItem::new(
             "Interface",
@@ -328,9 +310,11 @@ impl SettingsView {
 
         SettingPage::new("Appearance")
             .icon(Lucide::Palette)
-            .group(SettingGroup::new().title("Theme").items(vec![mode]))
-            .group(SettingGroup::new().title("Light theme").items(vec![light]))
-            .group(SettingGroup::new().title("Dark theme").items(vec![dark]))
+            .group(
+                SettingGroup::new()
+                    .title("Theme")
+                    .items(vec![mode, previews]),
+            )
             .group(
                 SettingGroup::new()
                     .title("Text")

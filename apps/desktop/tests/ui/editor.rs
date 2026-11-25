@@ -321,26 +321,24 @@ fn picking_a_theme_card_applies_and_saves_it(cx: &mut TestAppContext) {
     let name = |cx: &mut TestAppContext| cx.read(|cx| Theme::global(cx).theme_name().to_string());
     assert_eq!(name(cx), ottero_ui::theme::DARK);
 
-    click(&app, cx, "theme-catppuccin-mocha");
-    assert_eq!(name(cx), "Catppuccin Mocha");
+    // Clicking the light preview card switches cleanly to Ottero Light.
+    click(&app, cx, "theme-ottero-light");
+    assert_eq!(cx.read(|cx| Theme::global(cx).mode), ThemeMode::Light);
+    assert_eq!(name(cx), ottero_ui::theme::LIGHT);
     assert_eq!(
         cx.read(|cx| Theme::global(cx).highlight_theme.name.clone()),
-        "Catppuccin Mocha",
+        ottero_ui::theme::LIGHT,
         "code colors follow the theme"
     );
 
-    // A light card switches to light mode so the choice is visible.
-    click(&app, cx, "theme-solarized-light");
-    assert_eq!(cx.read(|cx| Theme::global(cx).mode), ThemeMode::Light);
-    assert_eq!(name(cx), "Solarized Light");
-
     let saved = ottero_ui::appearance::AppearanceSettings::load(&app.paths.appearance);
-    assert_eq!(saved.dark_theme, "Catppuccin Mocha");
-    assert_eq!(saved.light_theme, "Solarized Light");
+    assert_eq!(saved.dark_theme, ottero_ui::theme::DARK);
+    assert_eq!(saved.light_theme, ottero_ui::theme::LIGHT);
 
-    // Back to dark: the chosen dark theme comes back, not the default.
-    dispatch(&app, cx, UseDarkTheme);
-    assert_eq!(name(cx), "Catppuccin Mocha");
+    // Clicking the dark preview card switches back to Ottero Dark.
+    click(&app, cx, "theme-ottero-dark");
+    assert_eq!(cx.read(|cx| Theme::global(cx).mode), ThemeMode::Dark);
+    assert_eq!(name(cx), ottero_ui::theme::DARK);
 }
 
 #[gpui_kit::test]

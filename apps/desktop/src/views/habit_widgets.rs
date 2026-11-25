@@ -100,13 +100,13 @@ pub fn check_button(
         .font_weight(FontWeight::SEMIBOLD)
         .map(|s| {
             if done {
-                s.bg(theme.primary)
-                    .text_color(theme.primary_foreground)
+                s.bg(theme.success)
+                    .text_color(theme.success_foreground)
                     .child(Icon::new(Lucide::Check).xsmall())
             } else if count > 0 {
                 s.border_1()
-                    .border_color(theme.primary.opacity(0.6))
-                    .bg(theme.primary.opacity(0.1))
+                    .border_color(theme.success.opacity(0.6))
+                    .bg(theme.success.opacity(0.14))
                     .child(format!("{count}/{target}"))
             } else {
                 s.border_1()

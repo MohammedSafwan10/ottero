@@ -33,7 +33,7 @@ use ottero_ui::appearance;
 use crate::library::{CalendarSpan, HabitSummary, Library};
 use crate::views::calendar_layout::{format_span, format_time};
 use crate::views::event_detail::open_event_detail;
-use crate::views::habit_widgets::{add_days, caption, check_button};
+use crate::views::habit_widgets::{add_days, caption};
 use crate::views::task_detail::open_task_detail;
 use crate::views::task_row::task_row;
 use crate::views::today_layout::{self, TodaySection};
@@ -229,10 +229,12 @@ impl TodayView {
         v_flex()
             .id(id)
             .gap_3()
-            .p_4()
+            .p_5()
+            .bg(theme.group_box)
             .rounded(theme.radius_lg)
             .border_1()
             .border_color(theme.border)
+            .when(theme.shadow, |s| s.shadow_xs())
     }
 
     fn title_row(
@@ -409,9 +411,11 @@ impl TodayView {
             // Equal-height columns, so labels share one baseline.
             .items_stretch()
             .py_1()
+            .bg(theme.group_box)
             .rounded(theme.radius_lg)
             .border_1()
             .border_color(theme.border)
+            .when(theme.shadow, |s| s.shadow_xs())
             .child(column(
                 "glance-next",
                 Lucide::CalendarClock,
@@ -544,16 +548,23 @@ impl TodayView {
                 format!("{span} · {location}")
             }
         };
+        let bar_color = if routine {
+            theme.muted_foreground.opacity(0.4)
+        } else if current {
+            theme.warning
+        } else {
+            theme.info
+        };
         let library = self.library.clone();
         h_flex()
             .id(ElementId::Name(format!("today-event-{id}").into()))
-            .gap_2()
-            .items_start()
-            .mx(px(-8.))
-            .px(px(8.))
-            .py_1p5()
+            .gap_2p5()
+            .items_stretch()
+            .px_2p5()
+            .py_2()
             .rounded(theme.radius)
-            .when(current, |s| s.bg(theme.accent))
+            .when(current, |s| s.bg(theme.warning.opacity(0.14)))
+            .when(!current && !routine, |s| s.bg(theme.muted.opacity(0.45)))
             .hover(|s| s.bg(theme.list_hover))
             .when(past, |s| s.opacity(0.5))
             .on_click(move |_, window, cx| {
@@ -562,7 +573,7 @@ impl TodayView {
             .test_support()
             .child(
                 div()
-                    .w(rems(4.5))
+                    .w(rems(4.25))
                     .flex_shrink_0()
                     .pt(rems(0.0625))
                     .text_xs()
@@ -571,15 +582,11 @@ impl TodayView {
             )
             .child(
                 div()
-                    .mt(rems(0.375))
-                    .size_1p5()
+                    .w(px(3.))
+                    .my(px(1.))
                     .flex_shrink_0()
                     .rounded_full()
-                    .bg(if routine {
-                        theme.muted_foreground.opacity(0.5)
-                    } else {
-                        theme.primary
-                    }),
+                    .bg(bar_color),
             )
             .child(
                 v_flex()
@@ -645,45 +652,86 @@ impl TodayView {
                 } else if due.is_empty() {
                     c.child(Self::quiet("Nothing scheduled today. Enjoy the rest.", cx))
                 } else {
-                    c.child(v_flex().gap_0p5().children(due.iter().map(|h| {
+                    c.child(h_flex().flex_wrap().gap_3().children(due.iter().map(|h| {
+                        let id = h.habit.id();
+                        let done = h.done_today();
+                        let count = h.count_on(self.today);
+                        let target = h.habit.target();
                         let streak = h.stats.current_streak;
-                        h_flex()
-                            .gap_3()
-                            .py_1()
+                        let library = self.library.clone();
+                        let today = self.today;
+                        v_flex()
+                            .w(rems(4.5))
+                            .gap_1p5()
                             .items_center()
-                            .child(check_button(h, self.today, &self.library, cx))
                             .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .truncate()
-                                            .text_sm()
-                                            .when(h.done_today(), |s| {
-                                                s.text_color(theme.muted_foreground)
-                                            })
-                                            .child(h.habit.name().to_owned()),
-                                    )
-                                    .child(
-                                        div()
-                                            .truncate()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .child(caption(h, self.today)),
-                                    ),
+                                div()
+                                    .id(ElementId::Name(SharedString::from(format!(
+                                        "habit-check-{id}"
+                                    ))))
+                                    .size(rems(3.))
+                                    .rounded(theme.radius)
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_pointer()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .map(|s| {
+                                        if done {
+                                            s.bg(theme.success)
+                                                .text_color(theme.success_foreground)
+                                                .child(Icon::new(Lucide::Check).small())
+                                        } else if count > 0 {
+                                            s.bg(theme.success.opacity(0.2))
+                                                .border_1()
+                                                .border_color(theme.success.opacity(0.6))
+                                                .text_color(theme.foreground)
+                                                .child(format!("{count}/{target}"))
+                                        } else {
+                                            s.bg(theme.muted)
+                                                .border_1()
+                                                .border_color(theme.border)
+                                                .hover(|s| s.bg(theme.list_hover))
+                                                .when(target > 1, |s| {
+                                                    s.text_color(theme.muted_foreground)
+                                                        .child(format!("{target}"))
+                                                })
+                                        }
+                                    })
+                                    .on_click(move |_, window, cx| {
+                                        cx.stop_propagation();
+                                        crate::views::task_row::notify_err(
+                                            library.update(cx, |lib, cx| {
+                                                lib.tap_habit(id, today, cx).map(|_| ())
+                                            }),
+                                            window,
+                                            cx,
+                                        );
+                                    })
+                                    .test_support(),
                             )
-                            .when(streak > 0, |s| {
-                                s.child(
-                                    h_flex()
-                                        .gap_1()
-                                        .flex_shrink_0()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(Icon::new(Lucide::Flame).xsmall())
-                                        .child(h.stats.streak_label(streak)),
-                                )
-                            })
+                            .child(
+                                div()
+                                    .w_full()
+                                    .text_center()
+                                    .truncate()
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(if done {
+                                        theme.foreground
+                                    } else {
+                                        theme.muted_foreground
+                                    })
+                                    .child(h.habit.name().to_owned()),
+                            )
+                            .child(div().text_xs().text_color(theme.muted_foreground).child(
+                                if streak > 0 {
+                                    format!("{streak}d")
+                                } else {
+                                    caption(h, self.today)
+                                },
+                            ))
                     })))
                 }
             })
@@ -747,9 +795,9 @@ impl TodayView {
         let theme = cx.theme().clone();
         let total: usize = self.week.iter().map(|(_, n)| n).sum();
         let today_label: SharedString = self.today.strftime("%a").to_string().into();
-        let solid = theme.primary;
-        let calm = theme.primary.opacity(0.5);
-        let faint = theme.muted_foreground.opacity(0.25);
+        let solid = theme.success;
+        let calm = theme.success.opacity(0.48);
+        let faint = theme.muted;
         let data: Vec<(SharedString, f64)> = self
             .week
             .iter()
@@ -829,8 +877,8 @@ impl TodayView {
                                                 div().h(rems(0.375)).w_full().rounded_full().bg(
                                                     match rate {
                                                         Some(r) if *r > 0. => theme
-                                                            .primary
-                                                            .opacity((0.25 + 0.75 * *r) as f32),
+                                                            .success
+                                                            .opacity((0.3 + 0.7 * *r) as f32),
                                                         _ => theme.muted,
                                                     },
                                                 ),
@@ -1036,30 +1084,34 @@ impl TodayView {
                         cx,
                     ))
                 } else {
-                    c.child(v_flex().children(self.recent.iter().map(|n| {
-                        let id = n.id;
+                    c.child(
                         h_flex()
-                            .id(ElementId::Name(SharedString::from(format!("recent-{id}"))))
-                            .gap_2()
-                            .mx(px(-8.))
-                            .px(px(8.))
-                            .py_1p5()
-                            .items_center()
-                            .rounded(theme.radius)
-                            .hover(|s| s.bg(theme.list_hover))
-                            .on_click(
-                                cx.listener(move |_, _, _, cx| cx.emit(Navigate::OpenNote(id))),
-                            )
-                            .child(
-                                Icon::new(Lucide::FileText)
-                                    .xsmall()
-                                    .text_color(theme.muted_foreground),
-                            )
-                            .child(
+                            .flex_wrap()
+                            .gap_3()
+                            .children(self.recent.iter().map(|n| {
+                                let id = n.id;
                                 v_flex()
+                                    .id(ElementId::Name(SharedString::from(format!("recent-{id}"))))
                                     .flex_1()
-                                    .min_w_0()
-                                    .child(div().truncate().text_sm().child(n.title.clone()))
+                                    .min_w(rems(13.))
+                                    .gap_1()
+                                    .p_3()
+                                    .rounded(theme.radius)
+                                    .bg(theme.background)
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .cursor_pointer()
+                                    .hover(|s| s.bg(theme.list_hover))
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        cx.emit(Navigate::OpenNote(id))
+                                    }))
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .text_sm()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .child(n.title.clone()),
+                                    )
                                     .when(!n.preview.is_empty(), |s| {
                                         s.child(
                                             div()
@@ -1068,9 +1120,9 @@ impl TodayView {
                                                 .text_color(theme.muted_foreground)
                                                 .child(n.preview.clone()),
                                         )
-                                    }),
-                            )
-                    })))
+                                    })
+                            })),
+                    )
                 }
             })
             .into_any_element()
@@ -1153,6 +1205,62 @@ impl Render for TodayView {
                 .map(|(s, _)| s)
                 .collect();
 
+        let event_count = self.today_events().len();
+        let task_left = self.counts.due_today + self.counts.overdue;
+        let habit_due = self.habits.iter().filter(|h| h.due_today).count();
+        let habit_done = self
+            .habits
+            .iter()
+            .filter(|h| h.due_today && h.done_today())
+            .count();
+        let summary = format!(
+            "{event_count} {} · {task_left} {} · {habit_done}/{habit_due} habits",
+            if event_count == 1 { "event" } else { "events" },
+            if task_left == 1 { "task" } else { "tasks" },
+        );
+        let sync_pill = {
+            let lib = self.library.read(cx);
+            let signed_in = lib.account().signed_in_email().is_some();
+            if signed_in {
+                let label = if lib.sync_in_flight() {
+                    "Syncing…"
+                } else if lib.sync_last_error().is_some() {
+                    "Sync issue"
+                } else if lib
+                    .sync_state()
+                    .ok()
+                    .and_then(|s| s.last_synced_at)
+                    .is_some()
+                {
+                    "Synced"
+                } else {
+                    "Cloud"
+                };
+                let dot = if lib.sync_last_error().is_some() {
+                    theme.warning
+                } else {
+                    theme.success
+                };
+                Some(
+                    h_flex()
+                        .gap_1p5()
+                        .items_center()
+                        .px_2p5()
+                        .py_0p5()
+                        .rounded_full()
+                        .bg(theme.group_box)
+                        .border_1()
+                        .border_color(theme.border)
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(div().size_1p5().rounded_full().bg(dot))
+                        .child(label),
+                )
+            } else {
+                None
+            }
+        };
+
         let header = h_flex()
             .justify_between()
             .items_end()
@@ -1167,25 +1275,37 @@ impl Render for TodayView {
                             .child(date_label),
                     )
                     .child(
+                        h_flex()
+                            .gap_3()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(self.greeting()),
+                            )
+                            .children(sync_pill),
+                    )
+                    .child(
                         div()
-                            .text_2xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(self.greeting()),
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(summary),
                     ),
             )
             .child(
                 h_flex()
-                    .gap_1()
+                    .gap_1p5()
                     .items_center()
                     .child(
                         Button::new("today-daily-note")
-                            .outline()
+                            .primary()
                             .small()
                             .icon(Lucide::NotebookPen)
                             .label(if self.has_daily_note {
                                 "Open today's note"
                             } else {
-                                "Start today's note"
+                                "Today's note"
                             })
                             .tooltip_with_action(
                                 "Today's note",
