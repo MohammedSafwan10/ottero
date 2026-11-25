@@ -448,9 +448,11 @@ impl HabitsView {
             rows.push(self.row(i, h, i + 1 == ordered.len(), cx));
         }
         v_flex()
+            .bg(theme.group_box)
             .rounded(theme.radius_lg)
             .border_1()
             .border_color(theme.border)
+            .when(theme.shadow, |s| s.shadow_xs())
             .overflow_hidden()
             .child(self.columns(cx))
             .children(rows)
@@ -508,7 +510,7 @@ impl Render for HabitsView {
         let progress = (self.tab == HabitTab::Today && !due.is_empty()).then(|| {
             let share = done as f32 / due.len() as f32;
             div()
-                .h(rems(0.1875))
+                .h(rems(0.25))
                 .w_full()
                 .rounded_full()
                 .bg(theme.muted)
@@ -517,7 +519,7 @@ impl Render for HabitsView {
                         .h_full()
                         .w(gpui_kit::relative(share))
                         .rounded_full()
-                        .bg(theme.primary),
+                        .bg(theme.success),
                 )
         });
 

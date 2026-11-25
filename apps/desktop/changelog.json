@@ -1,5 +1,29 @@
 [
   {
+    "version": "0.3.0",
+    "date": "2026-11-25",
+    "title": "Quiet Alabaster, Smoked Obsidian, and Redesigned Today",
+    "summary": "Focused house Light and Dark themes, elevated tactile surfaces across Today, Tasks, and Habits, and cleaner Appearance settings.",
+    "sections": [
+      {
+        "title": "New",
+        "emoji": "✨",
+        "items": [
+          "Redesigned Ottero Light (Quiet Alabaster) and Ottero Dark (Smoked Obsidian) house themes with layered surfaces and restrained sage, sand, and steel data tints.",
+          "Redesigned Today screen with elevated cards, inline summary and Cloud sync pill, vertical color-bar schedule rows, tactile square Habit tiles, and paper-inset Recent Notes."
+        ]
+      },
+      {
+        "title": "Improved",
+        "emoji": "◈",
+        "items": [
+          "Streamlined Appearance settings to Ottero's focused Light and Dark pair (System / Light / Dark).",
+          "Elevated Tasks and Habits surfaces to match the new visual hierarchy."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.2.1",
     "date": "2026-11-25",
     "title": "Automatic Sync and Seamless Cloud Passwords",

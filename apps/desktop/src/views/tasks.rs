@@ -469,10 +469,25 @@ impl Render for TasksView {
                                         cx,
                                     ))
                                 } else {
-                                    list.children(
-                                        self.tasks.iter().map(|task| {
-                                            task_row(task, self.today, self.progress.get(&task.id()).copied(), &self.library, cx)
-                                        }),
+                                    let theme = cx.theme();
+                                    list.child(
+                                        v_flex()
+                                            .p_2()
+                                            .gap_0p5()
+                                            .bg(theme.group_box)
+                                            .rounded(theme.radius_lg)
+                                            .border_1()
+                                            .border_color(theme.border)
+                                            .when(theme.shadow, |s| s.shadow_xs())
+                                            .children(self.tasks.iter().map(|task| {
+                                                task_row(
+                                                    task,
+                                                    self.today,
+                                                    self.progress.get(&task.id()).copied(),
+                                                    &self.library,
+                                                    cx,
+                                                )
+                                            })),
                                     )
                                 }
                             }),
