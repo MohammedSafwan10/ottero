@@ -1,5 +1,21 @@
 [
   {
+    "version": "0.3.1",
+    "date": "2026-11-25",
+    "title": "Responsive Settings and Calmer Notifications",
+    "summary": "Prevents Settings controls like Restart to update from clipping on smaller windows, and caps and deduplicates toast notifications.",
+    "sections": [
+      {
+        "title": "Fixed",
+        "emoji": "🔧",
+        "items": [
+          "Stacked wide Settings rows (Updates, Interface & Code fonts, Line spacing, Content width, Lock after, Unlock with) and wrapped Account action rows so buttons like Restart to update never clip outside the box on smaller windows.",
+          "Capped visible toast notifications to 3 at a compact 340 px width and deduplicated update, clipboard, error, undo, and status toasts so duplicate alerts replace in place instead of stacking."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.3.0",
     "date": "2026-11-25",
     "title": "Quiet Alabaster, Smoked Obsidian, and Redesigned Today",

@@ -536,8 +536,9 @@ impl AppShell {
             Route::Developer => self.developer.read(cx).pane().clone(),
             Route::Passwords => self.passwords.read(cx).pane().clone(),
             _ => {
-                window.push_notification(
+                ottero_ui::feedback::info_toast(
                     "Open a project secrets item in Developer or Passwords first.",
+                    window,
                     cx,
                 );
                 return;
@@ -545,7 +546,7 @@ impl AppShell {
         };
         let editor = pane.read(cx).environment_editor().clone();
         if !editor.read(cx).is_active() {
-            window.push_notification("Open a project secrets item first.", cx);
+            ottero_ui::feedback::info_toast("Open a project secrets item first.", window, cx);
             return;
         }
         if matches!(
@@ -553,11 +554,15 @@ impl AppShell {
             EnvironmentCommand::Import | EnvironmentCommand::Paste
         ) && !pane.read(cx).is_editing()
         {
-            window.push_notification("Edit this item before importing variables.", cx);
+            ottero_ui::feedback::info_toast(
+                "Edit this item before importing variables.",
+                window,
+                cx,
+            );
             return;
         }
         if matches!(command, EnvironmentCommand::Export) && pane.read(cx).is_editing() {
-            window.push_notification("Save this item before exporting.", cx);
+            ottero_ui::feedback::info_toast("Save this item before exporting.", window, cx);
             return;
         }
         editor.update(cx, |editor, cx| match command {
@@ -1431,35 +1436,43 @@ fn palette_commands() -> Vec<(CommandItem, Box<dyn Action>)> {
 ///
 /// Deferred: app-level action handlers run while the window is still borrowed
 /// by the event dispatch, so updating it directly would silently fail.
+/// Unique ID so update status changes replace the existing update toast
+/// instead of stacking duplicates.
+struct UpdateNotice;
+
 /// The notice for an update status change (nothing for the quiet ones).
 fn update_notice(status: &crate::updates::Status, window: &mut Window, cx: &mut App) {
     use crate::updates::Status;
     use gpui_kit::component::notification::{Notification, NotificationType};
     let notification = match status {
         Status::Ready { version, .. } => Notification::new()
-            .message(format!(
-                "Ottero {version} is ready. It installs when you restart."
-            ))
+            .id::<UpdateNotice>()
+            .message(format!("Ottero {version} is ready to install."))
             .action(|_, _, cx| {
                 Button::new("update-restart")
                     .outline()
                     .xsmall()
-                    .label("Restart now")
+                    .label("Restart")
                     .on_click(cx.listener(|this, _, window, cx| {
                         window.dispatch_action(Box::new(RestartToUpdate), cx);
                         this.dismiss(window, cx);
                     }))
             })
             .autohide(false),
-        Status::Available { version } => Notification::new().message(format!(
-            "Ottero {version} is available. Install the latest GitHub release once to enable in-app updates."
-        )),
+        Status::Available { version } => Notification::new()
+            .id::<UpdateNotice>()
+            .message(format!("Ottero {version} is available on GitHub.")),
         Status::Unsupported if crate::updates::manual_pending(cx) => Notification::new()
+            .id::<UpdateNotice>()
             .message("Automatic updates aren't available for this platform."),
-        Status::UpToDate if crate::updates::manual_pending(cx) => Notification::new().message(
-            format!("Ottero {} is up to date.", env!("CARGO_PKG_VERSION")),
-        ),
+        Status::UpToDate if crate::updates::manual_pending(cx) => {
+            Notification::new().id::<UpdateNotice>().message(format!(
+                "Ottero {} is up to date.",
+                env!("CARGO_PKG_VERSION")
+            ))
+        }
         Status::Failed { message } => Notification::new()
+            .id::<UpdateNotice>()
             .with_type(NotificationType::Error)
             .message(message.clone()),
         _ => return,
@@ -1605,19 +1618,20 @@ pub fn register_commands(cx: &mut App) {
                 .filter(|_| opener == Some(Opener::Account))
             {
                 let message = format!("Passwords already opens with {email}.");
-                w.push_notification(message, cx);
+                ottero_ui::feedback::info_toast(message, w, cx);
                 s.navigate(Route::Passwords, w, cx);
                 return;
             }
             if signed_in.is_none() {
                 s.open_account(Some(crate::views::account::Mode::SignIn), w, cx);
-                w.push_notification("Sign in to Ottero Cloud first.", cx);
+                ottero_ui::feedback::info_toast("Sign in to Ottero Cloud first.", w, cx);
                 return;
             }
             if !open && state != LockState::Uninitialized {
                 s.open_account(None, w, cx);
-                w.push_notification(
+                ottero_ui::feedback::info_toast(
                     "Unlock your Ottero account, then Passwords asks for its master password once.",
+                    w,
                     cx,
                 );
                 return;

@@ -293,13 +293,15 @@ impl SettingsView {
                 };
                 let ready = matches!(crate::updates::status(cx), Status::Ready { .. });
                 h_flex()
-                    .gap_3()
+                    .w_full()
+                    .flex_wrap()
+                    .gap_2()
                     .items_center()
+                    .justify_between()
                     .child(
                         div()
                             .id("set-update-status")
                             .test_support()
-                            .flex_1()
                             .min_w_0()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
@@ -327,6 +329,7 @@ impl SettingsView {
                     .into_any_element()
             }),
         )
+        .layout(gpui_kit::Axis::Vertical)
         .description("New versions are signed by Nexdark Labs and checked before they install.")
         .keywords(["update", "upgrade", "new version", "version"]);
         let changelog = SettingItem::new(

@@ -27,8 +27,11 @@ pub fn init(appearance_file: PathBuf, cx: &mut App) {
     theme::register(cx);
     appearance::init(appearance_file, cx);
     // Toasts go bottom-right: the top-right is where every screen keeps its
-    // toolbar actions, and a toast there hides them for seconds.
+    // toolbar actions, and a toast there hides them for seconds. Cap the stack
+    // at 3 and keep toasts compact so narrower windows stay uncluttered.
     gpui_kit::component::Theme::update(cx, |theme| {
         theme.notification.placement = gpui_kit::Anchor::BottomRight;
+        theme.notification.max_items = 3;
+        theme.notification.width = gpui_kit::px(340.);
     });
 }

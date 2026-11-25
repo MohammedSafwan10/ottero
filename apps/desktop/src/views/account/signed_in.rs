@@ -239,9 +239,10 @@ impl AccountView {
                         ))
                         .child(
                             h_flex()
+                                .flex_wrap()
                                 .gap_2()
                                 .child(
-                                    div().w(rems(16.)).child(
+                                    div().w(rems(16.)).max_w_full().child(
                                         Input::new(&self.unlock).mask_toggle().disabled(busy),
                                     ),
                                 )
@@ -363,12 +364,13 @@ impl AccountView {
         };
         h_flex()
             .w_full()
+            .flex_wrap()
             .gap_3()
             .items_center()
             .child(
                 v_flex()
                     .flex_1()
-                    .min_w_0()
+                    .min_w(rems(12.))
                     .gap_0p5()
                     .child(
                         h_flex()

@@ -66,6 +66,7 @@ fn password_groups(library: Entity<crate::library::Library>) -> Vec<SettingGroup
             )
         }),
     )
+    .layout(gpui_kit::Axis::Vertical)
     .description("Lock the vault when you haven't used Ottero for this long.")
     .keywords(["vault", "auto-lock", "timeout", "security", "passwords"]);
     let hide = SettingItem::new(
@@ -111,6 +112,7 @@ fn password_groups(library: Entity<crate::library::Library>) -> Vec<SettingGroup
                 .child(format!("Ottero account · {email}"))
                 .into_any_element(),
             None => h_flex()
+                .flex_wrap()
                 .gap_2()
                 .when(signed_in(cx), |s| {
                     s.child(
@@ -138,6 +140,7 @@ fn password_groups(library: Entity<crate::library::Library>) -> Vec<SettingGroup
                 .into_any_element(),
         }),
     )
+    .layout(gpui_kit::Axis::Vertical)
     .description("A master password of its own, or your Ottero account when you're signed in. Linking asks for the master password once and then retires it.")
     .keywords(["master password", "vault", "change password", "ottero account", "cloud", "link"]);
     let recovery = SettingItem::new(

@@ -2,11 +2,16 @@
 
 Overwrite **Current state** and **Next steps** every session. Append to the log.
 
-## Current state (2026-11-24)
+## Current state (2026-11-25)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
-  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.3.0** (tagged `v0.3.0`).
+  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.3.1** (tagged `v0.3.1`).
   `scripts/check.sh` passes across all workspace crates and UI integration tests.
+  - **Responsive Settings & Calmer Notifications (`0.3.1`):** Stacked wide Settings
+    rows (`Updates`, `Interface`/`Code` fonts, `Line spacing`, `Content width`,
+    `Lock after`, `Unlock with`) and wrapped Account action rows so buttons like
+    `Restart to update` never clip on narrower windows; capped visible toasts to 3
+    at `340 px` width and deduplicated update, clipboard, error, undo, and info toasts.
   *(Note: keep `HANDOFF.md` strictly about the open-source desktop app; cloud
   backend, hosting, and pricing/monetization notes belong in the private
   `ottero-cloud` repo — see `AGENTS.md` rule 13.)*

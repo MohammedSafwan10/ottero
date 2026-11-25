@@ -58,6 +58,7 @@ pub const RANDOM_FAILED: &str =
 /// delay, unless something else was copied since.
 pub fn copy_field(label: &str, value: String, secret: bool, window: &mut Window, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(value.clone()));
+    struct ClipboardNotice;
     if secret {
         let delay = vault_prefs::get(cx).clipboard.after();
         let value = Zeroizing::new(value);
@@ -75,11 +76,18 @@ pub fn copy_field(label: &str, value: String, secret: bool, window: &mut Window,
         })
         .detach();
         window.push_notification(
-            format!("{label} copied. Clears in {} s.", delay.as_secs()),
+            gpui_kit::component::notification::Notification::new()
+                .id::<ClipboardNotice>()
+                .message(format!("{label} copied. Clears in {} s.", delay.as_secs())),
             cx,
         );
     } else {
-        window.push_notification(format!("{label} copied."), cx);
+        window.push_notification(
+            gpui_kit::component::notification::Notification::new()
+                .id::<ClipboardNotice>()
+                .message(format!("{label} copied.")),
+            cx,
+        );
     }
 }
 

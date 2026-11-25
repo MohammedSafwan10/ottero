@@ -51,6 +51,8 @@ pub(super) fn appearance_page() -> SettingPage {
         "Interface",
         SettingField::render(|_, _, cx| {
             h_flex()
+                .flex_wrap()
+                .items_center()
                 .gap_2()
                 .child(segmented(
                     "set-ui-font",
@@ -66,6 +68,7 @@ pub(super) fn appearance_page() -> SettingPage {
                 ))
         }),
     )
+    .layout(gpui_kit::Axis::Vertical)
     .description(format!(
         "Font for everything outside code. The size also scales spacing, so it works as zoom. Default {} px.",
         AppearanceSettings::DEFAULT_UI_FONT_SIZE
@@ -76,6 +79,8 @@ pub(super) fn appearance_page() -> SettingPage {
         "Code",
         SettingField::render(|_, _, cx| {
             h_flex()
+                .flex_wrap()
+                .items_center()
                 .gap_2()
                 .child(segmented(
                     "set-mono-font",
@@ -94,6 +99,7 @@ pub(super) fn appearance_page() -> SettingPage {
                 ))
         }),
     )
+    .layout(gpui_kit::Axis::Vertical)
     .description("Code blocks and inline code in notes.")
     .keywords(["typography", "monospace", "font"]);
 
@@ -112,6 +118,7 @@ pub(super) fn appearance_page() -> SettingPage {
             )
         }),
     )
+    .layout(gpui_kit::Axis::Vertical)
     .description("Space between lines when writing notes.")
     .keywords(["typography", "line height", "leading", "density"]);
 
@@ -163,6 +170,7 @@ pub(super) fn appearance_page() -> SettingPage {
             )
         }),
     )
+    .layout(gpui_kit::Axis::Vertical)
     .description("How wide notes and lists can grow on large screens.")
     .keywords(["layout", "width", "density"]);
 

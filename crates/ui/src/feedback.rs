@@ -66,6 +66,21 @@ pub fn confirm_destructive(
     });
 }
 
+struct InfoToast;
+struct UndoToast;
+struct ErrorToast;
+
+/// Shows a calm, deduplicated status toast (identical messages replace in place).
+pub fn info_toast(message: impl Into<SharedString>, window: &mut Window, cx: &mut App) {
+    let message: SharedString = message.into();
+    window.push_notification(
+        Notification::new()
+            .id1::<InfoToast>(message.clone())
+            .message(message),
+        cx,
+    );
+}
+
 /// Confirms a reversible action with an Undo button. Hides itself after a few seconds.
 pub fn undo_toast(
     message: impl Into<SharedString>,
@@ -74,8 +89,10 @@ pub fn undo_toast(
     on_undo: impl Fn(&mut Window, &mut App) + 'static,
 ) {
     let on_undo = Rc::new(on_undo);
+    let message: SharedString = message.into();
     let notification = Notification::new()
-        .message(message.into())
+        .id1::<UndoToast>(message.clone())
+        .message(message)
         .action(move |_, _, cx| {
             let on_undo = on_undo.clone();
             Button::new("undo")
@@ -94,10 +111,12 @@ pub fn undo_toast(
 
 /// Shows a failure. Messages come from domain/storage errors and are user-safe.
 pub fn error_toast(message: impl Into<SharedString>, window: &mut Window, cx: &mut App) {
+    let message: SharedString = message.into();
     window.push_notification(
         Notification::new()
+            .id1::<ErrorToast>(message.clone())
             .with_type(NotificationType::Error)
-            .message(message.into()),
+            .message(message),
         cx,
     );
 }
