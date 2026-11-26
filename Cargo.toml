@@ -7,6 +7,7 @@ members = [
     "crates/crypto",
     "crates/sync-protocol",
     "crates/ui",
+    "crates/mobile-ffi",
 ]
 default-members = ["apps/desktop"]
 # Vendored third-party code: built as a dependency, not linted as ours.
@@ -94,6 +95,9 @@ ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] 
 tungstenite = { version = "0.26", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 # QR code for turning on two-step verification (ADR 0013). No image/SVG features: modules only.
 qrcode = { version = "0.14", default-features = false }
+
+# Mobile FFI (Kotlin/Android & Swift/iOS via Mozilla UniFFI)
+uniffi = "0.29"
 
 # Dev
 tempfile = "3"

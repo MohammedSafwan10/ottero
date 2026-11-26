@@ -2,11 +2,16 @@
 
 Overwrite **Current state** and **Next steps** every session. Append to the log.
 
-## Current state (2026-11-25)
+## Current state (2026-11-26)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
   Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.4.1** (tagged `v0.4.1`).
-  `scripts/check.sh` passes across all workspace crates and UI integration tests.
+  `scripts/check.sh` passes across all workspace crates (including `ottero-mobile-ffi`) and UI integration tests.
+  - **Native Android + Rust UniFFI Foundation (`crates/mobile-ffi` + `apps/android`):**
+    - Modular Rust UniFFI crate (`crates/mobile-ffi`: `dto.rs`, `error.rs`, `notes.rs`, `tasks.rs`, `habits.rs`, `today.rs`, `lib.rs`) sharing `ottero-core` + `ottero-storage` (SQLite + FTS5 + migrations) with sanitized user-safe errors and undo restore (`restore_note`/`restore_task`).
+    - Cross-compilation script (`scripts/build-android-rust.sh`) building `arm64-v8a` + `x86_64` `libottero_mobile_ffi.so` via `cargo-ndk` (NDK 28, 16 KB page-size ready) and generating Kotlin UniFFI bindings (both gitignored in `apps/android/.gitignore`).
+    - Modular Jetpack Compose app (`apps/android`, AGP 9 / Gradle 9.1.0 / `compileSdk = 36` / `targetSdk = 36`) with Quiet Alabaster & Smoked Obsidian themes, async off-main-thread SQLite startup, serialized `OtteroEngine` dispatcher, predictive `BackHandler` + `ON_STOP` autosave flush, Undo snackbars, dynamic edge-to-edge system bar contrast, Android 12+ D2D backup exclusions (`data_extraction_rules.xml`), and adaptive NavigationBar/NavigationRail across `Today`, `Notes` (+ editor), `Tasks` (with Rust quick-add), and `Settings`.
+    - Audited by Senior Android & Rust FFI Reviewer subagent; all 13 findings fixed; `app-debug.apk` builds cleanly via Gradle. Real-device USB testing via `android` CLI / `adb` is next.
   - **Live Cross-Device Note Sync (`0.4.1`):** Open notes live-refresh in place
     when remote sync updates arrive (`refresh_open_note` with `reloading` guard),
     and `AUTO_SYNC_DEBOUNCE` tightened from `1.5 s` to `500 ms`.
