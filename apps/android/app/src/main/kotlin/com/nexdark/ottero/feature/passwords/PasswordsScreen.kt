@@ -111,7 +111,7 @@ fun PasswordsScreen(
         activity != null && BiometricHelper.canAuthenticate(activity)
 
     LaunchedEffect(needsBiometric, status) {
-        if (needsBiometric && status == MobileVaultStatus.UNLOCKED && activity != null) {
+        if (needsBiometric && status == MobileVaultStatus.UNLOCKED) {
             BiometricHelper.authenticate(
                 activity = activity,
                 onSuccess = { biometricVerified = true },
@@ -212,13 +212,11 @@ fun PasswordsScreen(
                             hint = "Verify with biometrics to view your vault.",
                             actionLabel = "Unlock",
                             onAction = {
-                                if (activity != null) {
-                                    BiometricHelper.authenticate(
-                                        activity = activity,
-                                        onSuccess = { biometricVerified = true },
-                                        onError = { feedback.error(it) },
-                                    )
-                                }
+                                BiometricHelper.authenticate(
+                                    activity = activity,
+                                    onSuccess = { biometricVerified = true },
+                                    onError = { feedback.error(it) },
+                                )
                             },
                         )
                     }

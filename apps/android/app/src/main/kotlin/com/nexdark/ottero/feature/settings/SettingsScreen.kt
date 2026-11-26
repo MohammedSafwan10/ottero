@@ -280,13 +280,12 @@ private fun SettingsHubList(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalOtteroPalette.current
-    val signedIn = accountStatus?.signedIn == true
-    val accountSubtitle = if (signedIn) {
+    val signedInStatus = accountStatus?.takeIf { it.signedIn }
+    val accountSubtitle = if (signedInStatus != null) {
         buildList {
             if (isLive) add("Live")
-            accountStatus?.lastSyncedAtMs?.let { add("Synced ${formatRelativeSyncTime(it)}") }
-            val pending = accountStatus?.pendingOutboxCount ?: 0u
-            if (pending > 0u) add("$pending pending")
+            signedInStatus.lastSyncedAtMs?.let { add("Synced ${formatRelativeSyncTime(it)}") }
+            if (signedInStatus.pendingOutboxCount > 0u) add("${signedInStatus.pendingOutboxCount} pending")
         }.joinToString(" · ").ifEmpty { "Signed in" }
     } else {
         "Sign in to sync across devices"
@@ -300,8 +299,8 @@ private fun SettingsHubList(
         item(key = "hub-account") {
             SettingsGroupCard {
                 SettingsHubRow(
-                    icon = if (signedIn) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff,
-                    title = if (signedIn) accountStatus?.email.orEmpty().ifBlank { "Ottero Account" } else "Ottero Account",
+                    icon = if (signedInStatus != null) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff,
+                    title = signedInStatus?.email?.takeIf { it.isNotBlank() } ?: "Ottero Account",
                     subtitle = accountSubtitle,
                     trailingValue = null,
                     selected = selectedPage == SettingsPage.Account,

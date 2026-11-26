@@ -15,10 +15,23 @@ android {
     versionName = "0.4.2"
   }
 
+  signingConfigs {
+    val keystorePath = System.getenv("OTTERO_KEYSTORE_PATH")
+    if (!keystorePath.isNullOrBlank()) {
+      create("release") {
+        storeFile = file(keystorePath)
+        storePassword = System.getenv("OTTERO_KEYSTORE_PASSWORD").orEmpty()
+        keyAlias = System.getenv("OTTERO_KEY_ALIAS").orEmpty()
+        keyPassword = System.getenv("OTTERO_KEY_PASSWORD").orEmpty()
+      }
+    }
+  }
+
   buildTypes {
     release {
       isMinifyEnabled = true
       isShrinkResources = true
+      signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
   }

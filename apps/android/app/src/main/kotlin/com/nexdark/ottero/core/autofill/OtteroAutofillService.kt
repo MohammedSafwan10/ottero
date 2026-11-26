@@ -1,12 +1,15 @@
 package com.nexdark.ottero.core.autofill
 
 import android.app.assist.AssistStructure
+import android.os.Build
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
 import android.service.autofill.Dataset
+import android.service.autofill.Field
 import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
+import android.service.autofill.Presentations
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveRequest
 import android.view.View
@@ -68,15 +71,41 @@ class OtteroAutofillService : AutofillService() {
                     }
                     setTextViewText(android.R.id.text1, label)
                 }
-                val datasetBuilder = Dataset.Builder()
-                parsed.usernameId?.let { id ->
-                    if (entry.username.isNotBlank()) {
-                        datasetBuilder.setValue(id, AutofillValue.forText(entry.username), presentation)
+                val datasetBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val presentations = Presentations.Builder()
+                        .setMenuPresentation(presentation)
+                        .build()
+                    Dataset.Builder(presentations).apply {
+                        parsed.usernameId?.let { id ->
+                            if (entry.username.isNotBlank()) {
+                                setField(
+                                    id,
+                                    Field.Builder().setValue(AutofillValue.forText(entry.username)).build(),
+                                )
+                            }
+                        }
+                        parsed.passwordId?.let { id ->
+                            if (entry.password.isNotBlank()) {
+                                setField(
+                                    id,
+                                    Field.Builder().setValue(AutofillValue.forText(entry.password)).build(),
+                                )
+                            }
+                        }
                     }
-                }
-                parsed.passwordId?.let { id ->
-                    if (entry.password.isNotBlank()) {
-                        datasetBuilder.setValue(id, AutofillValue.forText(entry.password), presentation)
+                } else {
+                    @Suppress("DEPRECATION")
+                    Dataset.Builder().apply {
+                        parsed.usernameId?.let { id ->
+                            if (entry.username.isNotBlank()) {
+                                setValue(id, AutofillValue.forText(entry.username), presentation)
+                            }
+                        }
+                        parsed.passwordId?.let { id ->
+                            if (entry.password.isNotBlank()) {
+                                setValue(id, AutofillValue.forText(entry.password), presentation)
+                            }
+                        }
                     }
                 }
                 runCatching { responseBuilder.addDataset(datasetBuilder.build()) }

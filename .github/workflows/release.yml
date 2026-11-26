@@ -151,9 +151,42 @@ jobs:
             dist/*-full.nupkg
             dist/appcast.xml
           if-no-files-found: error
+  android:
+    needs: [engines, quality]
+    if: ${{ !cancelled() && needs.engines.result == 'success' && (needs.quality.result == 'success' || needs.quality.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: Swatinem/rust-cache@v2
+        with: {key: release-android}
+      - name: Validate version and install Android Rust targets
+        run: |
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version'])")
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android x86_64-linux-android
+          cargo install cargo-ndk --locked --version 4.1.2 || true
+      - name: Build Android Rust FFI and release APK
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: |
+          ./scripts/build-android-rust.sh --release
+          (cd apps/android && ./gradlew assembleRelease)
+          mkdir -p dist
+          cp apps/android/app/build/outputs/apk/release/app-release.apk "dist/Ottero-${VERSION}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-Android
+          retention-days: 3
+          path: dist/*.apk
+          if-no-files-found: error
   catalog:
-    needs: [engines, quality, build]
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    needs: [engines, quality, build, android]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.android.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -222,7 +255,7 @@ jobs:
           TAG="v${VERSION}"
           cp LICENSE NOTICE release-dist/
           git archive --format=tar.gz --prefix="ottero-${VERSION}/" HEAD -o "release-dist/Ottero-${VERSION}-source.tar.gz"
-          (cd release-dist && sha256sum appcast.xml "Calmfold-${VERSION}-full.nupkg" LICENSE NOTICE "Ottero-${VERSION}-macos-arm64.zip" "Ottero-${VERSION}-source.tar.gz" Ottero-win-Portable.zip Ottero-win-Setup.exe stable.json stable.json.minisig > SHA256SUMS)
+          (cd release-dist && sha256sum appcast.xml "Calmfold-${VERSION}-full.nupkg" LICENSE NOTICE "Ottero-${VERSION}-android.apk" "Ottero-${VERSION}-macos-arm64.zip" "Ottero-${VERSION}-source.tar.gz" Ottero-win-Portable.zip Ottero-win-Setup.exe stable.json stable.json.minisig > SHA256SUMS)
           python3 - "$VERSION" "$SHA" "$RUN_ID" "$RELEASES_REPO" > /tmp/release-notes.md <<'PY'
           import json, sys
           version, sha, run_id, repo = sys.argv[1:5]
@@ -244,6 +277,7 @@ jobs:
               f"- [Mac · Apple Silicon]({base}/Ottero-{version}-macos-arm64.zip)",
               f"- [Windows · x64 installer]({base}/Ottero-win-Setup.exe)",
               f"- [Windows · portable]({base}/Ottero-win-Portable.zip)",
+              f"- [Android · APK]({base}/Ottero-{version}-android.apk)",
               f"- [Application source · GPLv3]({base}/Ottero-{version}-source.tar.gz)\n",
               "Or go to [ottero.nexdark.com](https://ottero.nexdark.com).\n",
               f"Already using Ottero? **Settings → About → Check now** downloads and installs `{version}` automatically.\n",
