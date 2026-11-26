@@ -37,6 +37,7 @@ import com.nexdark.ottero.core.components.OtteroCard
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.core.feedback.OtteroConfirmDialogHost
 import com.nexdark.ottero.core.feedback.rememberOtteroFeedback
+import com.nexdark.ottero.core.security.AccountKeystore
 import com.nexdark.ottero.feature.onboarding.OnboardingScreen
 import com.nexdark.ottero.navigation.OtteroApp
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
@@ -107,7 +108,13 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(retryCount) {
                         engineState = EngineState.Loading
                         engineState = OtteroEngine.open(applicationContext).fold(
-                            onSuccess = { EngineState.Ready(it) },
+                            onSuccess = { opened ->
+                                // Restore hardware-encrypted Ottero Cloud session if present.
+                                AccountKeystore.load(applicationContext)?.let { saved ->
+                                    runCatching { opened.accountRestoreSession(saved) }
+                                }
+                                EngineState.Ready(opened)
+                            },
                             onFailure = {
                                 EngineState.Failed(it.message ?: "Could not open local database")
                             },

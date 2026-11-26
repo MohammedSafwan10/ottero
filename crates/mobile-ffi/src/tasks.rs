@@ -3,9 +3,24 @@
 use jiff::civil::Date;
 use ottero_core::{Priority, Task, TaskId, TaskStatus, clock, parse_quick_add};
 use ottero_storage::{Store, TaskFilter};
+use ottero_sync_client::SyncTaskPayload;
+use ottero_sync_protocol::Collection;
 
 use crate::dto::{MobileTaskFilter, TaskItem};
 use crate::error::MobileError;
+use crate::sync;
+
+fn enqueue_task(store: &Store, task: &Task) {
+    let payload = SyncTaskPayload::from_task(task, &[]);
+    sync::enqueue_mutation(
+        store,
+        Collection::Tasks,
+        &task.id().to_string(),
+        &[],
+        task.deleted_at().is_some(),
+        &payload,
+    );
+}
 
 pub(crate) fn task_to_dto(t: &Task, today: Date) -> TaskItem {
     let priority = match t.priority() {
@@ -69,6 +84,7 @@ pub(crate) fn quick_add_task(
         task.set_recurrence(Some(rule), today, now)?;
     }
     store.save_task(&task)?;
+    enqueue_task(store, &task);
     Ok(task_to_dto(&task, today))
 }
 
@@ -89,8 +105,10 @@ pub(crate) fn toggle_task_done(store: &mut Store, id: &str) -> Result<TaskItem, 
     if completing && let Some(next_task) = task.next_occurrence(today, now) {
         task.clear_recurrence_quietly();
         store.save_task(&next_task)?;
+        enqueue_task(store, &next_task);
     }
     store.save_task(&task)?;
+    enqueue_task(store, &task);
     Ok(task_to_dto(&task, today))
 }
 
@@ -101,6 +119,7 @@ pub(crate) fn trash_task(store: &mut Store, id: &str) -> Result<(), MobileError>
     })?;
     task.trash(clock::now());
     store.save_task(&task)?;
+    enqueue_task(store, &task);
     Ok(())
 }
 
@@ -112,6 +131,7 @@ pub(crate) fn restore_task(store: &mut Store, id: &str) -> Result<TaskItem, Mobi
     })?;
     task.restore(clock::now());
     store.save_task(&task)?;
+    enqueue_task(store, &task);
     Ok(task_to_dto(&task, today))
 }
 
@@ -161,6 +181,7 @@ pub(crate) fn update_task(
     }
     if changed {
         store.save_task(&task)?;
+        enqueue_task(store, &task);
     }
     Ok(task_to_dto(&task, today))
 }

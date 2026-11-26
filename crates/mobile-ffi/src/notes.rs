@@ -2,9 +2,24 @@
 
 use ottero_core::{Note, NoteId, clock};
 use ottero_storage::{NoteSummary, Store};
+use ottero_sync_client::SyncNotePayload;
+use ottero_sync_protocol::Collection;
 
 use crate::dto::{NoteDetail, NoteListItem, TagCount};
 use crate::error::MobileError;
+use crate::sync;
+
+fn enqueue_note(store: &Store, note: &Note) {
+    let payload = SyncNotePayload::from(note);
+    sync::enqueue_mutation(
+        store,
+        Collection::Notes,
+        &note.id().to_string(),
+        &[],
+        note.is_trashed(),
+        &payload,
+    );
+}
 
 pub(crate) fn summary_to_dto(s: NoteSummary) -> NoteListItem {
     NoteListItem {
@@ -60,6 +75,7 @@ pub(crate) fn create_note(
 ) -> Result<NoteDetail, MobileError> {
     let note = Note::new(title, body, clock::now())?;
     store.save_note(&note)?;
+    enqueue_note(store, &note);
     Ok(note_to_detail(&note))
 }
 
@@ -75,6 +91,7 @@ pub(crate) fn update_note(
     })?;
     if note.edit(title, body, clock::now())? {
         store.save_note(&note)?;
+        enqueue_note(store, &note);
     }
     Ok(note_to_detail(&note))
 }
@@ -91,6 +108,7 @@ pub(crate) fn set_note_pinned(
     if note.is_pinned() != pinned {
         note.set_pinned(pinned, clock::now())?;
         store.save_note(&note)?;
+        enqueue_note(store, &note);
     }
     Ok(note_to_detail(&note))
 }
@@ -102,6 +120,7 @@ pub(crate) fn trash_note(store: &mut Store, id: &str) -> Result<(), MobileError>
     })?;
     note.trash(clock::now());
     store.save_note(&note)?;
+    enqueue_note(store, &note);
     Ok(())
 }
 
@@ -112,6 +131,7 @@ pub(crate) fn restore_note(store: &mut Store, id: &str) -> Result<NoteDetail, Mo
     })?;
     note.restore(clock::now());
     store.save_note(&note)?;
+    enqueue_note(store, &note);
     Ok(note_to_detail(&note))
 }
 

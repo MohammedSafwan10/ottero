@@ -25,6 +25,7 @@ ottero-storage.workspace = true
 ottero-ui.workspace = true
 ottero-crypto.workspace = true
 ottero-sync-protocol.workspace = true
+ottero-sync-client.workspace = true
 gpui-kit.workspace = true
 zorite-editor.workspace = true
 ratex-gpui.workspace = true

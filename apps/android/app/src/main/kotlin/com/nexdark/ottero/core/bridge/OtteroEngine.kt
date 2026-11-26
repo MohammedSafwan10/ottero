@@ -13,9 +13,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import uniffi.ottero_mobile_ffi.AccountSessionBundle
 import uniffi.ottero_mobile_ffi.AppInfo
 import uniffi.ottero_mobile_ffi.CalendarEventItem
 import uniffi.ottero_mobile_ffi.HabitItem
+import uniffi.ottero_mobile_ffi.MobileAccountStatus
+import uniffi.ottero_mobile_ffi.MobileSignInResult
+import uniffi.ottero_mobile_ffi.MobileSyncReport
 import uniffi.ottero_mobile_ffi.MobileTaskFilter
 import uniffi.ottero_mobile_ffi.MobileVaultStatus
 import uniffi.ottero_mobile_ffi.NoteDetail
@@ -241,6 +245,44 @@ class OtteroEngine(private val mobile: OtteroMobile) {
 
     suspend fun vaultTotpNow(secret: String): TotpCodeSnapshot = withContext(Dispatchers.Default) {
         mobile.vaultTotpNow(secret)
+    }
+
+    suspend fun accountStatus(): MobileAccountStatus = withContext(dbDispatcher) {
+        mobile.accountStatus()
+    }
+
+    suspend fun accountSignIn(
+        email: String,
+        password: String,
+        secretKey: String,
+    ): MobileSignInResult = withContext(Dispatchers.IO) {
+        mobile.accountSignIn(email, password, secretKey).also { _changes.tryEmit(Unit) }
+    }
+
+    suspend fun accountVerifyTwoStep(
+        code: String,
+        isBackupCode: Boolean,
+    ): MobileSignInResult = withContext(Dispatchers.IO) {
+        mobile.accountVerifyTwoStep(code, isBackupCode).also { _changes.tryEmit(Unit) }
+    }
+
+    suspend fun accountRestoreSession(session: AccountSessionBundle) = withContext(Dispatchers.IO) {
+        mobile.accountRestoreSession(
+            session.email,
+            session.accountId,
+            session.bearerToken,
+            session.accountKeyB64,
+        )
+        _changes.tryEmit(Unit)
+    }
+
+    suspend fun accountSignOut() = withContext(Dispatchers.IO) {
+        mobile.accountSignOut()
+        _changes.tryEmit(Unit)
+    }
+
+    suspend fun syncNow(): MobileSyncReport = withContext(Dispatchers.IO) {
+        mobile.syncNow().also { _changes.tryEmit(Unit) }
     }
 
     companion object {

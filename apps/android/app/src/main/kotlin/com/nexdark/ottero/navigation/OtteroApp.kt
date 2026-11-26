@@ -131,6 +131,16 @@ fun OtteroApp(
         engine.lockVaultNow()
     }
 
+    // Quietly sync when returning to the foreground if signed in.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        scope.launch {
+            val status = runSuspendCatching { engine.accountStatus() }.getOrNull()
+            if (status?.signedIn == true) {
+                runSuspendCatching { engine.syncNow() }
+            }
+        }
+    }
+
     fun createAndOpenNote() {
         if (isCreatingNote) return
         isCreatingNote = true

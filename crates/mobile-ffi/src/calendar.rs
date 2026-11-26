@@ -3,9 +3,24 @@
 use jiff::civil::{Date, Time};
 use ottero_core::{Event, EventId, clock, parse_event};
 use ottero_storage::Store;
+use ottero_sync_client::SyncEventPayload;
+use ottero_sync_protocol::Collection;
 
 use crate::dto::CalendarEventItem;
 use crate::error::MobileError;
+use crate::sync;
+
+fn enqueue_event(store: &Store, event: &Event) {
+    let payload = SyncEventPayload::from(event);
+    sync::enqueue_mutation(
+        store,
+        Collection::Events,
+        &event.id().to_string(),
+        &[],
+        event.is_trashed(),
+        &payload,
+    );
+}
 
 fn parse_event_id(id: &str) -> Result<EventId, MobileError> {
     id.parse::<EventId>()
@@ -90,6 +105,7 @@ pub(crate) fn quick_add_event(
     }
 
     store.save_event(&event)?;
+    enqueue_event(store, &event);
     Ok(CalendarEventItem {
         id: event.id().to_string(),
         title: event.title().to_owned(),
@@ -110,6 +126,7 @@ pub(crate) fn trash_event(store: &mut Store, id: &str) -> Result<(), MobileError
         })?;
     event.trash(clock::now())?;
     store.save_event(&event)?;
+    enqueue_event(store, &event);
     Ok(())
 }
 
@@ -122,5 +139,6 @@ pub(crate) fn restore_event(store: &mut Store, id: &str) -> Result<(), MobileErr
         })?;
     event.restore(clock::now());
     store.save_event(&event)?;
+    enqueue_event(store, &event);
     Ok(())
 }

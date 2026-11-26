@@ -90,15 +90,13 @@ Ottero is an all-in-one personal workspace (Today, Notes, Tasks, Calendar, Habit
   - `FLAG_SECURE` on both Activity window and `VaultItemSheet` (`ModalBottomSheetProperties(securePolicy = SecureFlagPolicy.SecureOn)`), RAM-only secret state (no `rememberSaveable` Bundle leaks), `KeyboardType.Password` + `autoCorrectEnabled = false`, app-wide `ON_STOP` instant background auto-lock, and `SensitiveClipboard` (`EXTRA_IS_SENSITIVE` + timestamp-checked 30s auto-clear).
 - [ ] **Phase 5b (Optional Native Extras):** `BiometricPrompt` + Android Keystore key wrapping, Card/Secure Note/Custom Field editors, and Android system `AutofillService`.
 
-### Phase 6 — Ottero Cloud Account & Live E2EE Sync (Next)
-- [ ] **Sync Prerequisites (from Phases 0–5 Audit):**
-  - Wire `record_sync` outbox writes across `crates/mobile-ffi` mutations (`notes`, `tasks`, `habits`, `calendar`, `vault`).
-  - Support account-linked vault unlock (`meta.account` / `ottero_crypto::vault_link::unwrap_vault_key`) + vault recovery key generation (`RECOVERY_AAD`) so Cloud-linked Desktop vaults open seamlessly on Android.
-- [ ] **Shared Rust Sync Engine (`crates/mobile-ffi/src/sync.rs`):**
-  - Expose Account sign-in (email + password + Secret Key + TOTP 2FA), E2EE pull/push (`crates/sync-protocol`), and WebSocket live push.
-  - Store session tokens in hardware-backed Android Keystore (never plain prefs).
-- [ ] **Background Sync (`WorkManager`):**
-  - Periodic + connectivity-aware background sync + instant foreground sync on app resume, so edits made on Desktop appear on Android in <1 second and vice versa.
+### Phase 6 — Ottero Cloud Account & Live E2EE Sync (Done)
+- [x] **Shared Sync Crate (`crates/sync-client`):**
+  - Extracted Desktop's pure-Rust E2EE sync engine (`client.rs`, `engine.rs`, `record.rs`) into `ottero-sync-client` so Desktop and Android share one single source of truth.
+- [x] **Sync Outbox & Account-Linked Vault Unlock (`crates/mobile-ffi/src/sync.rs`):**
+  - Wired `enqueue_mutation` across mobile writes (`notes`, `tasks`, `calendar`, `vault`) and automatic account-linked vault unlock (`vault_link::unwrap_vault_key` / `wrap_vault_key` + `VAULT_META_SYNC_ID`) so signing in unlocks Passwords automatically.
+- [x] **Account Sign-In, 2FA, & Hardware Keystore (`AccountKeystore.kt` + `SettingsScreen.kt`):**
+  - Full sign-in (email + password + Secret Key + TOTP/backup-code 2FA), hardware-backed Android Keystore (`AES-256-GCM`) session persistence, automatic session restore on cold start, `Sync now` button, and quiet foreground sync on `ON_RESUME`.
 
 ### Phase 7 — Native Mobile Superpowers & Release Engineering
 - [ ] **Home Screen Widgets (`Jetpack Glance`):**

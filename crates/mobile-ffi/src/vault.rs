@@ -17,9 +17,24 @@ use ottero_crypto::{
     seal,
 };
 use ottero_storage::{MasterWrap, SealedItem, Store, VaultMeta};
+use ottero_sync_client::SyncVaultPayload;
+use ottero_sync_protocol::Collection;
 
 use crate::dto::{MobileVaultStatus, TotpCodeSnapshot, VaultEntryDetail, VaultEntrySummary};
 use crate::error::MobileError;
+use crate::sync;
+
+fn enqueue_vault_item(store: &Store, sealed: &SealedItem) {
+    let payload = SyncVaultPayload::from(sealed);
+    sync::enqueue_mutation(
+        store,
+        Collection::Vault,
+        &sealed.id.to_string(),
+        &[],
+        false,
+        &payload,
+    );
+}
 
 const KEY_AAD: &[u8] = b"keepstone-vault-key-v1";
 const META_VERSION: u32 = 1;
@@ -373,7 +388,8 @@ pub(crate) fn save_login(
     };
 
     let sealed = seal_item(key, &item)?;
-    store.save_vault_items(&[sealed])?;
+    store.save_vault_items(std::slice::from_ref(&sealed))?;
+    enqueue_vault_item(store, &sealed);
     Ok(to_detail(&item))
 }
 
@@ -397,7 +413,8 @@ pub(crate) fn trash_item(
     let mut item = open_item(key, &sealed)?;
     item.trash(clock::now())?;
     let resealed = seal_item(key, &item)?;
-    store.save_vault_items(&[resealed])?;
+    store.save_vault_items(std::slice::from_ref(&resealed))?;
+    enqueue_vault_item(store, &resealed);
     Ok(())
 }
 
@@ -421,7 +438,8 @@ pub(crate) fn restore_item(
     let mut item = open_item(key, &sealed)?;
     item.restore(clock::now());
     let resealed = seal_item(key, &item)?;
-    store.save_vault_items(&[resealed])?;
+    store.save_vault_items(std::slice::from_ref(&resealed))?;
+    enqueue_vault_item(store, &resealed);
     Ok(())
 }
 

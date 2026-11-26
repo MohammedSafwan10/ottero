@@ -1,20 +1,14 @@
-//! Ottero Cloud end-to-end encrypted sync client and engine.
+//! Ottero Cloud end-to-end encrypted sync client and engine (shared via `ottero-sync-client`)
+//! plus desktop live WebSocket push listener.
 
-pub mod client;
-pub mod engine;
-pub mod record;
-pub mod ws;
-
-pub use client::{DEFAULT_SYNC_URL, SyncClient, SyncClientError};
-pub use engine::{
-    DecryptedChange, SyncCycleReport, ensure_collection_keys, sync_collection_keys, sync_once,
-    sync_once_with_apply,
-};
-pub use record::{
+pub use ottero_sync_client::{
+    DEFAULT_SYNC_URL, DecryptedChange, SyncClient, SyncClientError, SyncCycleReport,
     SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload, SyncTaskPayload,
     SyncVaultMetaPayload, SyncVaultPayload, VAULT_META_SYNC_ID, apply_decrypted_change,
-    apply_decrypted_page, enqueue_full_snapshot, enqueue_local_change,
+    apply_decrypted_page, client, engine, enqueue_full_snapshot, enqueue_local_change,
+    ensure_collection_keys, record, sync_collection_keys, sync_once, sync_once_with_apply,
 };
+pub mod ws;
 
 #[cfg(test)]
 mod tests {

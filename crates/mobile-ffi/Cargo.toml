@@ -11,12 +11,20 @@ name = "ottero_mobile_ffi"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+base64.workspace = true
 jiff.workspace = true
 ottero-core.workspace = true
 ottero-crypto.workspace = true
 ottero-storage.workspace = true
+ottero-sync-client.workspace = true
+ottero-sync-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true
+ureq.workspace = true
+url.workspace = true
+uuid.workspace = true
 
 [features]
 default = []

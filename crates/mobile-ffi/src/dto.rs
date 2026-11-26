@@ -119,3 +119,38 @@ pub struct TotpCodeSnapshot {
     pub seconds_left: u32,
     pub period: u32,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileSignInStatus {
+    SignedIn,
+    NeedsTwoStep,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AccountSessionBundle {
+    pub email: String,
+    pub account_id: String,
+    pub bearer_token: String,
+    pub account_key_b64: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MobileSignInResult {
+    pub status: MobileSignInStatus,
+    pub session: Option<AccountSessionBundle>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MobileAccountStatus {
+    pub signed_in: bool,
+    pub email: Option<String>,
+    pub last_synced_at_ms: Option<i64>,
+    pub pending_outbox_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MobileSyncReport {
+    pub pushed: u32,
+    pub pulled: u32,
+    pub latest_seq: i64,
+}

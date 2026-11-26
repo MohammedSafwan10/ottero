@@ -6,6 +6,7 @@ mod dto;
 mod error;
 mod habits;
 mod notes;
+mod sync;
 mod tasks;
 mod today;
 mod vault;
@@ -14,22 +15,25 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use ottero_storage::Store;
+use sync::AccountSessionState;
 use vault::VaultKeyState;
 
 pub use dto::{
-    AppInfo, CalendarEventItem, HabitItem, MobileTaskFilter, MobileVaultStatus, NoteDetail,
-    NoteListItem, TagCount, TaskItem, TodaySnapshot, TotpCodeSnapshot, VaultEntryDetail,
-    VaultEntrySummary,
+    AccountSessionBundle, AppInfo, CalendarEventItem, HabitItem, MobileAccountStatus,
+    MobileSignInResult, MobileSignInStatus, MobileSyncReport, MobileTaskFilter, MobileVaultStatus,
+    NoteDetail, NoteListItem, TagCount, TaskItem, TodaySnapshot, TotpCodeSnapshot,
+    VaultEntryDetail, VaultEntrySummary,
 };
 pub use error::MobileError;
 
 uniffi::setup_scaffolding!();
 
-/// Thread-safe handle to a local Ottero SQLite store and in-memory vault key.
+/// Thread-safe handle to a local Ottero SQLite store, vault key, and cloud account session.
 #[derive(uniffi::Object)]
 pub struct OtteroMobile {
     store: Mutex<Store>,
     vault_key: Mutex<VaultKeyState>,
+    account: Mutex<AccountSessionState>,
 }
 
 #[uniffi::export]
@@ -41,6 +45,7 @@ impl OtteroMobile {
         Ok(Self {
             store: Mutex::new(store),
             vault_key: Mutex::new(VaultKeyState::new()),
+            account: Mutex::new(AccountSessionState::new()),
         })
     }
 
@@ -51,6 +56,7 @@ impl OtteroMobile {
         Ok(Self {
             store: Mutex::new(store),
             vault_key: Mutex::new(VaultKeyState::new()),
+            account: Mutex::new(AccountSessionState::new()),
         })
     }
 
@@ -291,6 +297,68 @@ impl OtteroMobile {
     pub fn vault_totp_now(&self, secret: String) -> Result<TotpCodeSnapshot, MobileError> {
         vault::totp_now(&secret)
     }
+
+    pub fn account_status(&self) -> Result<MobileAccountStatus, MobileError> {
+        let store = self.lock()?;
+        let acct = self.lock_account()?;
+        sync::account_status(&store, &acct)
+    }
+
+    pub fn account_sign_in(
+        &self,
+        email: String,
+        password: String,
+        secret_key: String,
+    ) -> Result<MobileSignInResult, MobileError> {
+        sync::sign_in(
+            &self.store,
+            &self.vault_key,
+            &self.account,
+            email,
+            password,
+            secret_key,
+        )
+    }
+
+    pub fn account_verify_two_step(
+        &self,
+        code: String,
+        is_backup_code: bool,
+    ) -> Result<MobileSignInResult, MobileError> {
+        sync::verify_two_step(
+            &self.store,
+            &self.vault_key,
+            &self.account,
+            code,
+            is_backup_code,
+        )
+    }
+
+    pub fn account_restore_session(
+        &self,
+        email: String,
+        account_id: String,
+        bearer_token: String,
+        account_key_b64: String,
+    ) -> Result<(), MobileError> {
+        sync::restore_session(
+            &self.store,
+            &self.vault_key,
+            &self.account,
+            email,
+            account_id,
+            bearer_token,
+            account_key_b64,
+        )
+    }
+
+    pub fn account_sign_out(&self) -> Result<(), MobileError> {
+        sync::sign_out(&self.vault_key, &self.account)
+    }
+
+    pub fn sync_now(&self) -> Result<MobileSyncReport, MobileError> {
+        sync::sync_now(&self.store, &self.vault_key, &self.account)
+    }
 }
 
 impl OtteroMobile {
@@ -300,6 +368,10 @@ impl OtteroMobile {
 
     fn lock_vault(&self) -> Result<std::sync::MutexGuard<'_, VaultKeyState>, MobileError> {
         self.vault_key.lock().map_err(|_| MobileError::LockPoisoned)
+    }
+
+    fn lock_account(&self) -> Result<std::sync::MutexGuard<'_, AccountSessionState>, MobileError> {
+        self.account.lock().map_err(|_| MobileError::LockPoisoned)
     }
 }
 

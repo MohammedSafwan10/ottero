@@ -5548,6 +5548,7 @@ dependencies = [
  "ottero-core",
  "ottero-crypto",
  "ottero-storage",
+ "ottero-sync-client",
  "ottero-sync-protocol",
  "ottero-ui",
  "qrcode",
@@ -5571,11 +5572,20 @@ dependencies = [
 name = "ottero-mobile-ffi"
 version = "0.4.1"
 dependencies = [
+ "base64 0.22.1",
  "jiff",
  "ottero-core",
+ "ottero-crypto",
  "ottero-storage",
+ "ottero-sync-client",
+ "ottero-sync-protocol",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "uniffi",
+ "ureq",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -5592,6 +5602,21 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "ottero-sync-client"
+version = "0.4.1"
+dependencies = [
+ "ottero-core",
+ "ottero-crypto",
+ "ottero-storage",
+ "ottero-sync-protocol",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ureq",
+ "url",
 ]
 
 [[package]]

@@ -10,8 +10,8 @@ use ottero_storage::{AccountWrap, OutboxEntry, SealedItem, Store, VaultMeta};
 use ottero_sync_protocol::{ChangeId, Collection, Hlc, HlcClock, decode_blob, encode_blob};
 use serde::{Deserialize, Serialize};
 
-use crate::sync::client::SyncClientError;
-use crate::sync::engine::DecryptedChange;
+use crate::client::SyncClientError;
+use crate::engine::DecryptedChange;
 
 /// Reserved `Collection::Vault` item ID carrying the account-wrapped vault key
 /// header (`vault_meta`) so synced Passwords decrypt seamlessly on other devices.

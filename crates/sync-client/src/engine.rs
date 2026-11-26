@@ -14,7 +14,7 @@ use ottero_sync_protocol::{
     PutKeysRequest, QuotaUsage, decode_blob, encode_blob, item_aad,
 };
 
-use crate::sync::client::{SyncClient, SyncClientError};
+use crate::client::{SyncClient, SyncClientError};
 
 /// A verified, decrypted remote change ready to apply to local storage.
 #[derive(Clone, PartialEq, Eq)]
