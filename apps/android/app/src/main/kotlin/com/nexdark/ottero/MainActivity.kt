@@ -37,6 +37,8 @@ import com.nexdark.ottero.core.components.OtteroCard
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.core.feedback.OtteroConfirmDialogHost
 import com.nexdark.ottero.core.feedback.rememberOtteroFeedback
+import com.nexdark.ottero.core.prefs.LocalOtteroPrefs
+import com.nexdark.ottero.core.prefs.OtteroPrefsStore
 import com.nexdark.ottero.core.security.AccountKeystore
 import com.nexdark.ottero.feature.onboarding.OnboardingScreen
 import com.nexdark.ottero.navigation.OtteroApp
@@ -79,10 +81,12 @@ class MainActivity : ComponentActivity() {
 
         val initialTheme = loadThemePreference()
         val initialOnboardingDone = isOnboardingDone()
+        val initialPrefs = OtteroPrefsStore.load(applicationContext)
 
         setContent {
             var themePreference by remember { mutableStateOf(initialTheme) }
             var onboardingDone by remember { mutableStateOf(initialOnboardingDone) }
+            var appPrefs by remember { mutableStateOf(initialPrefs) }
             val isDark = when (themePreference) {
                 ThemePreference.System -> isSystemInDarkTheme()
                 ThemePreference.Light -> false
@@ -101,7 +105,10 @@ class MainActivity : ComponentActivity() {
 
             OtteroTheme(preference = themePreference) {
                 val feedback = rememberOtteroFeedback()
-                CompositionLocalProvider(LocalOtteroFeedback provides feedback) {
+                CompositionLocalProvider(
+                    LocalOtteroFeedback provides feedback,
+                    LocalOtteroPrefs provides appPrefs,
+                ) {
                     var engineState by remember { mutableStateOf<EngineState>(EngineState.Loading) }
                     var retryCount by remember { mutableIntStateOf(0) }
 
@@ -156,6 +163,10 @@ class MainActivity : ComponentActivity() {
                                     onThemeChange = { next ->
                                         themePreference = next
                                         saveThemePreference(next)
+                                    },
+                                    onUpdatePrefs = { next ->
+                                        appPrefs = next
+                                        OtteroPrefsStore.save(applicationContext, next)
                                     },
                                 )
                             }

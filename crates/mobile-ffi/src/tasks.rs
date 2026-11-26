@@ -3,7 +3,8 @@
 use jiff::civil::Date;
 use ottero_core::{Priority, Task, TaskId, TaskStatus, clock, parse_quick_add};
 use ottero_storage::{Store, TaskFilter};
-use ottero_sync_client::enqueue_task_change;
+use ottero_sync_client::{enqueue_local_change, enqueue_task_change};
+use ottero_sync_protocol::Collection;
 
 use crate::dto::{MobileTaskFilter, TaskItem};
 use crate::error::MobileError;
@@ -177,4 +178,28 @@ pub(crate) fn update_task(
         enqueue_task(store, &task);
     }
     Ok(task_to_dto(&task, today))
+}
+
+pub(crate) fn list_trashed_tasks(store: &Store) -> Result<Vec<TaskItem>, MobileError> {
+    let today = clock::today();
+    let tasks = store.list_tasks(TaskFilter::Trash)?;
+    Ok(tasks.iter().map(|t| task_to_dto(t, today)).collect())
+}
+
+pub(crate) fn delete_task_permanently(store: &mut Store, id: &str) -> Result<(), MobileError> {
+    let task_id = parse_task_id(id)?;
+    store.delete_task_permanently(task_id)?;
+    if let Some(device_id) = sync::active_device_id(store) {
+        let _ = enqueue_local_change(
+            store,
+            &device_id,
+            Collection::Tasks,
+            &task_id.to_string(),
+            &["deleted"],
+            true,
+            &serde_json::json!({}),
+            clock::now(),
+        );
+    }
+    Ok(())
 }

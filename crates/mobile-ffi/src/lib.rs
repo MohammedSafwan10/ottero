@@ -19,10 +19,10 @@ use sync::AccountSessionState;
 use vault::VaultKeyState;
 
 pub use dto::{
-    AccountSessionBundle, AppInfo, CalendarEventItem, HabitItem, MobileAccountStatus,
+    AccountSessionBundle, AppInfo, CalendarEventItem, HabitItem, HolidayItem, MobileAccountStatus,
     MobileSignInResult, MobileSignInStatus, MobileSyncReport, MobileTaskFilter, MobileVaultStatus,
     NoteDetail, NoteListItem, SyncWsCredentials, TagCount, TaskItem, TodaySnapshot,
-    TotpCodeSnapshot, VaultEntryDetail, VaultEntrySummary,
+    TotpCodeSnapshot, UnifiedTrashSnapshot, VaultEntryDetail, VaultEntrySummary,
 };
 pub use error::MobileError;
 
@@ -215,6 +215,73 @@ impl OtteroMobile {
     pub fn restore_event(&self, id: String) -> Result<(), MobileError> {
         let mut store = self.lock()?;
         calendar::restore_event(&mut store, &id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_event(
+        &self,
+        id: String,
+        title: String,
+        notes: String,
+        location: String,
+        date_iso: String,
+        all_day: bool,
+        start_time: Option<String>,
+        end_time: Option<String>,
+    ) -> Result<CalendarEventItem, MobileError> {
+        let mut store = self.lock()?;
+        calendar::update_event(
+            &mut store, &id, &title, &notes, &location, &date_iso, all_day, start_time, end_time,
+        )
+    }
+
+    pub fn list_holidays_in_range(
+        &self,
+        start_iso: String,
+        end_iso: String,
+        country_code: Option<String>,
+    ) -> Result<Vec<HolidayItem>, MobileError> {
+        calendar::list_holidays_in_range(&start_iso, &end_iso, country_code)
+    }
+
+    pub fn unified_trash_snapshot(&self) -> Result<UnifiedTrashSnapshot, MobileError> {
+        let store = self.lock()?;
+        Ok(UnifiedTrashSnapshot {
+            notes: notes::list_trashed_notes(&store)?,
+            tasks: tasks::list_trashed_tasks(&store)?,
+            events: calendar::list_trashed_events(&store)?,
+        })
+    }
+
+    pub fn delete_task_permanently(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        tasks::delete_task_permanently(&mut store, &id)
+    }
+
+    pub fn delete_event_permanently(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        calendar::delete_event_permanently(&mut store, &id)
+    }
+
+    pub fn empty_all_trash(&self) -> Result<u32, MobileError> {
+        let mut store = self.lock()?;
+        let trashed_notes = notes::list_trashed_notes(&store)?;
+        let trashed_tasks = tasks::list_trashed_tasks(&store)?;
+        let trashed_events = calendar::list_trashed_events(&store)?;
+        let mut count: u32 = 0;
+        for n in trashed_notes {
+            notes::delete_note_permanently(&mut store, &n.id)?;
+            count = count.saturating_add(1);
+        }
+        for t in trashed_tasks {
+            tasks::delete_task_permanently(&mut store, &t.id)?;
+            count = count.saturating_add(1);
+        }
+        for e in trashed_events {
+            calendar::delete_event_permanently(&mut store, &e.id)?;
+            count = count.saturating_add(1);
+        }
+        Ok(count)
     }
 
     pub fn vault_status(&self) -> Result<MobileVaultStatus, MobileError> {

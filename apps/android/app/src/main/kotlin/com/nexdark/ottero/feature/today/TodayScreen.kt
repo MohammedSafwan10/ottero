@@ -20,12 +20,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Spa
 import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,12 +49,17 @@ import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.EmptyPlaceholder
 import com.nexdark.ottero.core.components.OtteroCard
+import com.nexdark.ottero.core.components.OtteroPullToRefresh
 import com.nexdark.ottero.core.components.SectionHeader
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
+import com.nexdark.ottero.core.prefs.LocalOtteroPrefs
+import com.nexdark.ottero.core.prefs.formatDisplayTime
+import com.nexdark.ottero.feature.tasks.TaskDetailSheet
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import uniffi.ottero_mobile_ffi.CalendarEventItem
 import uniffi.ottero_mobile_ffi.HabitItem
 import uniffi.ottero_mobile_ffi.NoteListItem
 import uniffi.ottero_mobile_ffi.TaskItem
@@ -68,16 +75,19 @@ fun TodayScreen(
     onOpenTasks: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenHabits: () -> Unit,
+    onOpenCalendar: () -> Unit,
     onOpenNote: (String) -> Unit,
     onCreateNote: () -> Unit,
     onAddTask: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
     val feedback = LocalOtteroFeedback.current
+    val prefs = LocalOtteroPrefs.current
     val haptic = LocalHapticFeedback.current
     val layoutDirection = LocalLayoutDirection.current
     val scope = rememberCoroutineScope()
     var snapshot by remember { mutableStateOf<TodaySnapshot?>(null) }
+    var editingTask by remember { mutableStateOf<TaskItem?>(null) }
 
     LaunchedEffect(engine) {
         engine.changes.onStart { emit(Unit) }.collectLatest {
@@ -85,6 +95,15 @@ fun TodayScreen(
                 .onSuccess { snapshot = it }
                 .onFailure { feedback.error(it.message ?: "Could not load today") }
         }
+    }
+
+    val activeTask = editingTask
+    if (activeTask != null) {
+        TaskDetailSheet(
+            engine = engine,
+            task = activeTask,
+            onDismiss = { editingTask = null },
+        )
     }
 
     val dateKey = snapshot?.dateIso
@@ -100,132 +119,216 @@ fun TodayScreen(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
-            end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
-            top = contentPadding.calculateTopPadding() + 8.dp,
-            bottom = contentPadding.calculateBottomPadding() + 88.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(key = "header", contentType = "header") {
-            Column(
-                modifier = Modifier.padding(bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = dateLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.muted,
-                )
-                Text(
-                    text = greeting,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = palette.ink,
-                )
-            }
-        }
-
-        val snap = snapshot
-        if (snap != null) {
-            item(key = "tasks-header", contentType = "section_header") {
-                SectionHeader(
-                    title = "Due today",
-                    actionLabel = "All tasks",
-                    onAction = onOpenTasks,
-                )
-            }
-
-            if (snap.dueTasks.isEmpty()) {
-                item(key = "tasks-empty", contentType = "empty") {
-                    OtteroCard {
-                        EmptyPlaceholder(
-                            icon = Icons.Outlined.TaskAlt,
-                            title = "No tasks due today",
-                            hint = "Add one to get started.",
-                            actionLabel = "Add a task",
-                            onAction = onAddTask,
+    OtteroPullToRefresh(engine = engine, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
+                end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
+                top = contentPadding.calculateTopPadding() + 8.dp,
+                bottom = contentPadding.calculateBottomPadding() + 88.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item(key = "header", contentType = "header") {
+                Column(
+                    modifier = Modifier.padding(bottom = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = dateLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.muted,
+                    )
+                    Text(
+                        text = greeting,
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = palette.ink,
+                    )
+                    val snap = snapshot
+                    if (snap != null && (snap.overdueCount > 0u || snap.completedTodayCount > 0u)) {
+                        val summary = buildList {
+                            if (snap.overdueCount > 0u) add("${snap.overdueCount} overdue")
+                            if (snap.completedTodayCount > 0u) add("${snap.completedTodayCount} done today")
+                        }.joinToString(" · ")
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (snap.overdueCount > 0u) palette.danger else palette.muted,
                         )
                     }
                 }
-            } else {
-                items(
-                    items = snap.dueTasks,
-                    key = { "today-task-${it.id}" },
-                    contentType = { "task_row" },
-                ) { task ->
-                    TodayTaskRow(
-                        task = task,
-                        onToggle = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            scope.launch {
-                                runSuspendCatching { engine.toggleTaskDone(task.id) }
-                                    .onFailure { feedback.error(it.message ?: "Could not update task") }
-                            }
-                        },
-                    )
-                }
             }
 
-            if (snap.habits.isNotEmpty()) {
-                item(key = "habits-header", contentType = "section_header") {
+            val snap = snapshot
+            if (snap != null) {
+                if (snap.todayEvents.isNotEmpty()) {
+                    item(key = "events-header", contentType = "section_header") {
+                        SectionHeader(
+                            title = "Schedule",
+                            actionLabel = "Calendar",
+                            onAction = onOpenCalendar,
+                        )
+                    }
+                    items(
+                        items = snap.todayEvents,
+                        key = { "today-event-${it.id}-${it.startTime ?: "all"}" },
+                        contentType = { "event_row" },
+                    ) { ev ->
+                        TodayEventRow(
+                            event = ev,
+                            use24Hour = prefs.use24HourTime,
+                            onClick = onOpenCalendar,
+                        )
+                    }
+                }
+
+                item(key = "tasks-header", contentType = "section_header") {
+                    if (snap.todayEvents.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                    SectionHeader(
+                        title = "Due today",
+                        actionLabel = "All tasks",
+                        onAction = onOpenTasks,
+                    )
+                }
+
+                if (snap.dueTasks.isEmpty()) {
+                    item(key = "tasks-empty", contentType = "empty") {
+                        OtteroCard {
+                            EmptyPlaceholder(
+                                icon = Icons.Outlined.TaskAlt,
+                                title = "No tasks due today",
+                                hint = "Add one to get started.",
+                                actionLabel = "Add a task",
+                                onAction = onAddTask,
+                            )
+                        }
+                    }
+                } else {
+                    items(
+                        items = snap.dueTasks,
+                        key = { "today-task-${it.id}" },
+                        contentType = { "task_row" },
+                    ) { task ->
+                        TodayTaskRow(
+                            task = task,
+                            onToggle = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                scope.launch {
+                                    runSuspendCatching { engine.toggleTaskDone(task.id) }
+                                        .onFailure { feedback.error(it.message ?: "Could not update task") }
+                                }
+                            },
+                            onEdit = { editingTask = task },
+                        )
+                    }
+                }
+
+                if (snap.habits.isNotEmpty()) {
+                    item(key = "habits-header", contentType = "section_header") {
+                        Spacer(Modifier.height(4.dp))
+                        SectionHeader(
+                            title = "Habits",
+                            actionLabel = "All habits",
+                            onAction = onOpenHabits,
+                        )
+                    }
+
+                    items(
+                        items = snap.habits,
+                        key = { "today-habit-${it.id}" },
+                        contentType = { "habit_row" },
+                    ) { habit ->
+                        TodayHabitRow(
+                            habit = habit,
+                            onTap = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                scope.launch {
+                                    runSuspendCatching { engine.tapHabitToday(habit.id) }
+                                        .onFailure { feedback.error(it.message ?: "Could not log habit") }
+                                }
+                            },
+                        )
+                    }
+                }
+
+                item(key = "notes-header", contentType = "section_header") {
                     Spacer(Modifier.height(4.dp))
                     SectionHeader(
-                        title = "Habits",
-                        actionLabel = "All habits",
-                        onAction = onOpenHabits,
+                        title = "Recent notes",
+                        actionLabel = "All notes",
+                        onAction = onOpenNotes,
                     )
                 }
 
-                items(
-                    items = snap.habits,
-                    key = { "today-habit-${it.id}" },
-                    contentType = { "habit_row" },
-                ) { habit ->
-                    TodayHabitRow(
-                        habit = habit,
-                        onTap = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            scope.launch {
-                                runSuspendCatching { engine.tapHabitToday(habit.id) }
-                                    .onFailure { feedback.error(it.message ?: "Could not log habit") }
-                            }
-                        },
-                    )
-                }
-            }
-
-            item(key = "notes-header", contentType = "section_header") {
-                Spacer(Modifier.height(4.dp))
-                SectionHeader(
-                    title = "Recent notes",
-                    actionLabel = "All notes",
-                    onAction = onOpenNotes,
-                )
-            }
-
-            if (snap.recentNotes.isEmpty()) {
-                item(key = "notes-empty", contentType = "empty") {
-                    OtteroCard {
-                        EmptyPlaceholder(
-                            icon = Icons.Outlined.Description,
-                            title = "No notes yet",
-                            hint = "Write your first note.",
-                            actionLabel = "New note",
-                            onAction = onCreateNote,
-                        )
+                if (snap.recentNotes.isEmpty()) {
+                    item(key = "notes-empty", contentType = "empty") {
+                        OtteroCard {
+                            EmptyPlaceholder(
+                                icon = Icons.Outlined.Description,
+                                title = "No notes yet",
+                                hint = "Write your first note.",
+                                actionLabel = "New note",
+                                onAction = onCreateNote,
+                            )
+                        }
+                    }
+                } else {
+                    items(
+                        items = snap.recentNotes,
+                        key = { "today-note-${it.id}" },
+                        contentType = { "note_row" },
+                    ) { note ->
+                        TodayNoteCard(note = note, onClick = { onOpenNote(note.id) })
                     }
                 }
-            } else {
-                items(
-                    items = snap.recentNotes,
-                    key = { "today-note-${it.id}" },
-                    contentType = { "note_row" },
-                ) { note ->
-                    TodayNoteCard(note = note, onClick = { onOpenNote(note.id) })
-                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodayEventRow(
+    event: CalendarEventItem,
+    use24Hour: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalOtteroPalette.current
+    val timeLabel = if (event.allDay) {
+        "All day"
+    } else {
+        listOfNotNull(
+            event.startTime?.let { formatDisplayTime(it, use24Hour) },
+            event.endTime?.let { formatDisplayTime(it, use24Hour) },
+        ).joinToString(" – ")
+    }
+    OtteroCard(modifier = Modifier.clickable(onClick = onClick)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CalendarToday,
+                contentDescription = null,
+                tint = palette.muted,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = event.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = palette.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (event.location.isNotBlank()) "$timeLabel · ${event.location}" else timeLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -235,13 +338,11 @@ fun TodayScreen(
 private fun TodayTaskRow(
     task: TaskItem,
     onToggle: () -> Unit,
+    onEdit: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
     OtteroCard(
-        modifier = Modifier.clickable(
-            onClickLabel = if (task.completed) "Mark incomplete" else "Complete task",
-            onClick = onToggle,
-        ),
+        modifier = Modifier.clickable(onClickLabel = "Edit task", onClick = onEdit),
     ) {
         Row(
             modifier = Modifier
@@ -249,13 +350,18 @@ private fun TodayTaskRow(
                 .heightIn(min = 32.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = if (task.completed) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                contentDescription = null,
-                tint = if (task.completed) palette.success else palette.muted,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(12.dp))
+            IconButton(
+                onClick = onToggle,
+                modifier = Modifier.size(36.dp),
+            ) {
+                Icon(
+                    imageVector = if (task.completed) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                    contentDescription = if (task.completed) "Mark incomplete" else "Complete task",
+                    tint = if (task.completed) palette.success else palette.muted,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(6.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = task.title,

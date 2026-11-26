@@ -62,6 +62,7 @@ import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.EmptyPlaceholder
 import com.nexdark.ottero.core.components.OtteroCard
+import com.nexdark.ottero.core.components.OtteroPullToRefresh
 import com.nexdark.ottero.core.components.OtteroCardShape
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
@@ -139,18 +140,19 @@ fun TasksScreen(
         )
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-        contentPadding = PaddingValues(
-            start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
-            end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
-            top = contentPadding.calculateTopPadding() + 8.dp,
-            bottom = contentPadding.calculateBottomPadding() + 88.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    OtteroPullToRefresh(engine = engine, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentPadding = PaddingValues(
+                start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
+                end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
+                top = contentPadding.calculateTopPadding() + 8.dp,
+                bottom = contentPadding.calculateBottomPadding() + 88.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         item(key = "tasks-filters", contentType = "filters") {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(
@@ -220,6 +222,12 @@ fun TasksScreen(
             ) { task ->
                 val dismissState = rememberSwipeToDismissBoxState()
 
+                LaunchedEffect(task.id) {
+                    if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+                        dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+                    }
+                }
+
                 SwipeToDismissBox(
                     state = dismissState,
                     onDismiss = { value ->
@@ -229,7 +237,7 @@ fun TasksScreen(
                                 scope.launch {
                                     runSuspendCatching { engine.toggleTaskDone(task.id) }
                                         .onFailure { feedback.error(it.message ?: "Could not update task") }
-                                    dismissState.reset()
+                                    dismissState.snapTo(SwipeToDismissBoxValue.Settled)
                                 }
                             }
 
@@ -238,13 +246,14 @@ fun TasksScreen(
                                 scope.launch {
                                     runSuspendCatching { engine.trashTask(task.id) }
                                         .onSuccess {
+                                            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
                                             feedback.undo("Task moved to trash") {
                                                 engine.restoreTask(task.id)
                                             }
                                         }
                                         .onFailure {
                                             feedback.error(it.message ?: "Could not trash task")
-                                            dismissState.reset()
+                                            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
                                         }
                                 }
                             }
@@ -346,5 +355,6 @@ fun TasksScreen(
                 }
             }
         }
+    }
     }
 }

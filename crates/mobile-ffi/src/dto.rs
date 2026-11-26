@@ -61,6 +61,7 @@ pub struct TodaySnapshot {
     pub due_tasks: Vec<TaskItem>,
     pub habits: Vec<HabitItem>,
     pub recent_notes: Vec<NoteListItem>,
+    pub today_events: Vec<CalendarEventItem>,
     pub completed_today_count: u32,
     pub overdue_count: u32,
 }
@@ -76,10 +77,25 @@ pub struct CalendarEventItem {
     pub id: String,
     pub title: String,
     pub notes: String,
+    pub location: String,
     pub date_iso: String,
     pub start_time: Option<String>,
     pub end_time: Option<String>,
     pub all_day: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct HolidayItem {
+    pub date_iso: String,
+    pub name: String,
+    pub short_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct UnifiedTrashSnapshot {
+    pub notes: Vec<NoteListItem>,
+    pub tasks: Vec<TaskItem>,
+    pub events: Vec<CalendarEventItem>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

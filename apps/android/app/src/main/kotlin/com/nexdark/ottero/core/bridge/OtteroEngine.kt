@@ -21,6 +21,7 @@ import uniffi.ottero_mobile_ffi.AccountSessionBundle
 import uniffi.ottero_mobile_ffi.AppInfo
 import uniffi.ottero_mobile_ffi.CalendarEventItem
 import uniffi.ottero_mobile_ffi.HabitItem
+import uniffi.ottero_mobile_ffi.HolidayItem
 import uniffi.ottero_mobile_ffi.MobileAccountStatus
 import uniffi.ottero_mobile_ffi.MobileSignInResult
 import uniffi.ottero_mobile_ffi.MobileSyncReport
@@ -34,6 +35,7 @@ import uniffi.ottero_mobile_ffi.TagCount
 import uniffi.ottero_mobile_ffi.TaskItem
 import uniffi.ottero_mobile_ffi.TodaySnapshot
 import uniffi.ottero_mobile_ffi.TotpCodeSnapshot
+import uniffi.ottero_mobile_ffi.UnifiedTrashSnapshot
 import uniffi.ottero_mobile_ffi.VaultEntryDetail
 import uniffi.ottero_mobile_ffi.VaultEntrySummary
 import java.io.File
@@ -233,6 +235,51 @@ class OtteroEngine(private val mobile: OtteroMobile) {
     suspend fun restoreEvent(id: String) = withContext(dbDispatcher) {
         mobile.restoreEvent(id)
         notifyMutation()
+    }
+
+    suspend fun updateEvent(
+        id: String,
+        title: String,
+        notes: String,
+        location: String,
+        dateIso: String,
+        allDay: Boolean,
+        startTime: String?,
+        endTime: String?,
+    ): CalendarEventItem = withContext(dbDispatcher) {
+        mobile.updateEvent(id, title, notes, location, dateIso, allDay, startTime, endTime).also {
+            notifyMutation()
+        }
+    }
+
+    suspend fun listHolidaysInRange(
+        startIso: String,
+        endIso: String,
+        countryCode: String? = null,
+    ): List<HolidayItem> = withContext(dbDispatcher) {
+        mobile.listHolidaysInRange(startIso, endIso, countryCode)
+    }
+
+    suspend fun unifiedTrashSnapshot(): UnifiedTrashSnapshot = withContext(dbDispatcher) {
+        mobile.unifiedTrashSnapshot()
+    }
+
+    suspend fun deleteTaskPermanently(id: String) = withContext(dbDispatcher) {
+        mobile.deleteTaskPermanently(id)
+        notifyMutation()
+    }
+
+    suspend fun deleteEventPermanently(id: String) = withContext(dbDispatcher) {
+        mobile.deleteEventPermanently(id)
+        notifyMutation()
+    }
+
+    suspend fun emptyAllTrash(): UInt = withContext(dbDispatcher) {
+        mobile.emptyAllTrash().also { notifyMutation() }
+    }
+
+    fun refreshLocal() {
+        _changes.tryEmit(Unit)
     }
 
     suspend fun vaultStatus(): MobileVaultStatus = withContext(dbDispatcher) {

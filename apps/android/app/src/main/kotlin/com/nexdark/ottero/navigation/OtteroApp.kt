@@ -73,6 +73,9 @@ import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.OtteroTopChrome
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.core.feedback.OtteroSnackbarHost
+import com.nexdark.ottero.core.prefs.LocalOtteroPrefs
+import com.nexdark.ottero.core.prefs.OtteroPrefsState
+import com.nexdark.ottero.core.prefs.StartupDestination
 import com.nexdark.ottero.feature.calendar.CalendarScreen
 import com.nexdark.ottero.feature.capture.CaptureKind
 import com.nexdark.ottero.feature.capture.QuickCaptureSheet
@@ -114,13 +117,24 @@ fun OtteroApp(
     engine: OtteroEngine,
     themePreference: ThemePreference,
     onThemeChange: (ThemePreference) -> Unit,
+    onUpdatePrefs: (OtteroPrefsState) -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
     val feedback = LocalOtteroFeedback.current
+    val prefs = LocalOtteroPrefs.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var destination by rememberSaveable { mutableStateOf(Destination.Today) }
+    val initialDestination = remember {
+        when (prefs.startupDestination) {
+            StartupDestination.Today -> Destination.Today
+            StartupDestination.Notes -> Destination.Notes
+            StartupDestination.Tasks -> Destination.Tasks
+            StartupDestination.Habits -> Destination.Habits
+            StartupDestination.Calendar -> Destination.Calendar
+        }
+    }
+    var destination by rememberSaveable { mutableStateOf(initialDestination) }
     var activeNoteId by rememberSaveable { mutableStateOf<String?>(null) }
     var activeNoteIsNew by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -184,6 +198,7 @@ fun OtteroApp(
             engine = engine,
             themePreference = themePreference,
             onThemeChange = onThemeChange,
+            onUpdatePrefs = onUpdatePrefs,
             onBack = { showSettings = false },
         )
         return
@@ -527,6 +542,7 @@ private fun DestinationContent(
             onOpenTasks = { onSelectDestination(Destination.Tasks) },
             onOpenNotes = { onSelectDestination(Destination.Notes) },
             onOpenHabits = { onSelectDestination(Destination.Habits) },
+            onOpenCalendar = { onSelectDestination(Destination.Calendar) },
             onOpenNote = onOpenNote,
             onCreateNote = onCreateNote,
             onAddTask = { onOpenQuickCapture(CaptureKind.Task) },

@@ -22,12 +22,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.nexdark.ottero.core.async.runSuspendCatching
+import com.nexdark.ottero.core.bridge.OtteroEngine
+import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
+import kotlinx.coroutines.launch
 
 val OtteroCardShape = RoundedCornerShape(14.dp)
 
@@ -161,5 +171,38 @@ fun EmptyPlaceholder(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OtteroPullToRefresh(
+    engine: OtteroEngine,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val feedback = LocalOtteroFeedback.current
+    val scope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            if (isRefreshing) return@PullToRefreshBox
+            isRefreshing = true
+            scope.launch {
+                val signedIn = runSuspendCatching { engine.accountStatus().signedIn }.getOrDefault(false)
+                if (signedIn) {
+                    runSuspendCatching { engine.syncNow() }
+                        .onFailure { feedback.error(it.message ?: "Sync failed") }
+                } else {
+                    engine.refreshLocal()
+                }
+                isRefreshing = false
+            }
+        },
+        modifier = modifier,
+    ) {
+        content()
     }
 }

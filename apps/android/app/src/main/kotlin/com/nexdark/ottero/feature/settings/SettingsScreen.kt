@@ -3,6 +3,8 @@ package com.nexdark.ottero.feature.settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +34,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -45,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -58,6 +62,10 @@ import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.OtteroCard
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.core.feedback.OtteroSnackbarHost
+import com.nexdark.ottero.core.prefs.LocalOtteroPrefs
+import com.nexdark.ottero.core.prefs.OtteroPrefsState
+import com.nexdark.ottero.core.prefs.StartupDestination
+import com.nexdark.ottero.core.prefs.WeekStartPreference
 import com.nexdark.ottero.core.security.AccountKeystore
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import com.nexdark.ottero.ui.theme.ThemePreference
@@ -68,16 +76,18 @@ import uniffi.ottero_mobile_ffi.AppInfo
 import uniffi.ottero_mobile_ffi.MobileAccountStatus
 import uniffi.ottero_mobile_ffi.MobileSignInStatus
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     engine: OtteroEngine,
     themePreference: ThemePreference,
     onThemeChange: (ThemePreference) -> Unit,
+    onUpdatePrefs: (OtteroPrefsState) -> Unit,
     onBack: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
     val feedback = LocalOtteroFeedback.current
+    val prefs = LocalOtteroPrefs.current
     val context = LocalContext.current
     val layoutDirection = LocalLayoutDirection.current
     val scope = rememberCoroutineScope()
@@ -250,6 +260,125 @@ fun SettingsScreen(
                                 selected = themePreference == pref,
                                 onClick = { onThemeChange(pref) },
                                 label = { Text(pref.name) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = palette.ink,
+                                    selectedLabelColor = palette.card,
+                                    containerColor = palette.recessed,
+                                    labelColor = palette.muted,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+            item(key = "general-card", contentType = "general") {
+                OtteroCard {
+                    Text(
+                        text = "Startup screen",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = palette.ink,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        StartupDestination.entries.forEach { dest ->
+                            FilterChip(
+                                selected = prefs.startupDestination == dest,
+                                onClick = { onUpdatePrefs(prefs.copy(startupDestination = dest)) },
+                                label = { Text(dest.label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = palette.ink,
+                                    selectedLabelColor = palette.card,
+                                    containerColor = palette.recessed,
+                                    labelColor = palette.muted,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
+            item(key = "calendar-card", contentType = "calendar") {
+                OtteroCard {
+                    Text(
+                        text = "Calendar",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = palette.ink,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "Week starts on",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.muted,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        WeekStartPreference.entries.forEach { start ->
+                            FilterChip(
+                                selected = prefs.weekStart == start,
+                                onClick = { onUpdatePrefs(prefs.copy(weekStart = start)) },
+                                label = { Text(start.label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = palette.ink,
+                                    selectedLabelColor = palette.card,
+                                    containerColor = palette.recessed,
+                                    labelColor = palette.muted,
+                                ),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "24-hour time",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.ink,
+                        )
+                        Switch(
+                            checked = prefs.use24HourTime,
+                            onCheckedChange = { onUpdatePrefs(prefs.copy(use24HourTime = it)) },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Show holidays",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.ink,
+                        )
+                        Switch(
+                            checked = prefs.showHolidays,
+                            onCheckedChange = { onUpdatePrefs(prefs.copy(showHolidays = it)) },
+                        )
+                    }
+                }
+            }
+
+            item(key = "privacy-card", contentType = "privacy") {
+                OtteroCard {
+                    Text(
+                        text = "Passwords clipboard auto-clear",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = palette.ink,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(15, 30, 60).forEach { seconds ->
+                            FilterChip(
+                                selected = prefs.clipboardClearSeconds == seconds,
+                                onClick = { onUpdatePrefs(prefs.copy(clipboardClearSeconds = seconds)) },
+                                label = { Text("${seconds}s") },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = palette.ink,
                                     selectedLabelColor = palette.card,

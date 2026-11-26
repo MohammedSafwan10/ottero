@@ -50,6 +50,7 @@ import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.EmptyPlaceholder
 import com.nexdark.ottero.core.components.OtteroCard
+import com.nexdark.ottero.core.components.OtteroPullToRefresh
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.flow.collectLatest
@@ -97,18 +98,19 @@ fun HabitsScreen(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-        contentPadding = PaddingValues(
-            start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
-            end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
-            top = contentPadding.calculateTopPadding() + 8.dp,
-            bottom = contentPadding.calculateBottomPadding() + 88.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    OtteroPullToRefresh(engine = engine, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentPadding = PaddingValues(
+                start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
+                end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
+                top = contentPadding.calculateTopPadding() + 8.dp,
+                bottom = contentPadding.calculateBottomPadding() + 88.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         item(key = "habits-quick-add", contentType = "quick_add") {
             OutlinedTextField(
                 value = draft,
@@ -205,5 +207,6 @@ fun HabitsScreen(
                 }
             }
         }
+    }
     }
 }

@@ -58,18 +58,23 @@ import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.EmptyPlaceholder
 import com.nexdark.ottero.core.components.OtteroCard
+import com.nexdark.ottero.core.components.OtteroPullToRefresh
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
+import com.nexdark.ottero.core.prefs.LocalOtteroPrefs
+import com.nexdark.ottero.core.prefs.formatDisplayTime
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import uniffi.ottero_mobile_ffi.CalendarEventItem
+import uniffi.ottero_mobile_ffi.HolidayItem
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.TemporalAdjusters
-import java.time.temporal.WeekFields
 import java.util.Locale
 
 @Composable
@@ -79,25 +84,41 @@ fun CalendarScreen(
 ) {
     val palette = LocalOtteroPalette.current
     val feedback = LocalOtteroFeedback.current
+    val prefs = LocalOtteroPrefs.current
     val haptic = LocalHapticFeedback.current
     val layoutDirection = LocalLayoutDirection.current
     val scope = rememberCoroutineScope()
 
     val today = remember { LocalDate.now() }
     var selectedIso by rememberSaveable { mutableStateOf(today.toString()) }
+    var monthMode by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
     var events by remember { mutableStateOf<List<CalendarEventItem>>(emptyList()) }
+    var holidays by remember { mutableStateOf<List<HolidayItem>>(emptyList()) }
+    var editingEvent by remember { mutableStateOf<CalendarEventItem?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
     val selectedDate = remember(selectedIso) {
         runCatching { LocalDate.parse(selectedIso) }.getOrDefault(today)
     }
-    val firstDayOfWeek = remember { WeekFields.of(Locale.getDefault()).firstDayOfWeek }
+    val firstDayOfWeek = remember(prefs.weekStart) { prefs.weekStart.resolve() }
     val weekStart = remember(selectedDate, firstDayOfWeek) {
         selectedDate.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
     }
     val weekDays = remember(weekStart) {
         (0L..6L).map { weekStart.plusDays(it) }
+    }
+    val monthGridWeeks = remember(selectedDate.year, selectedDate.monthValue, firstDayOfWeek) {
+        val ym = YearMonth.of(selectedDate.year, selectedDate.month)
+        val gridStart = ym.atDay(1).with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
+        val gridEnd = ym.atEndOfMonth().with(TemporalAdjusters.nextOrSame(firstDayOfWeek.plus(6)))
+        buildList {
+            var cursor = gridStart
+            while (!cursor.isAfter(gridEnd)) {
+                add((0L..6L).map { cursor.plusDays(it) })
+                cursor = cursor.plusWeeks(1)
+            }
+        }
     }
     val monthLabel = remember(selectedDate) {
         selectedDate.format(DateTimeFormatter.ofPattern("MMMM yyyy"))
@@ -114,211 +135,336 @@ fun CalendarScreen(
         }
     }
 
-    LaunchedEffect(engine) {
+    LaunchedEffect(engine, prefs.showHolidays) {
         combine(
             snapshotFlow { selectedIso },
             engine.changes.onStart { emit(Unit) },
         ) { dayIso, _ -> dayIso }.collectLatest { dayIso ->
-            runSuspendCatching { engine.listEventsInRange(dayIso, dayIso) }
-                .onSuccess {
-                    events = it
-                    isLoading = false
+            runSuspendCatching {
+                val loadedEvents = engine.listEventsInRange(dayIso, dayIso)
+                val loadedHolidays = if (prefs.showHolidays) {
+                    engine.listHolidaysInRange(dayIso, dayIso)
+                } else {
+                    emptyList()
                 }
-                .onFailure {
-                    isLoading = false
-                    feedback.error(it.message ?: "Could not load events")
-                }
+                loadedEvents to loadedHolidays
+            }.onSuccess { (loadedEvents, loadedHolidays) ->
+                events = loadedEvents
+                holidays = loadedHolidays
+                isLoading = false
+            }.onFailure {
+                isLoading = false
+                feedback.error(it.message ?: "Could not load events")
+            }
         }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-        contentPadding = PaddingValues(
-            start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
-            end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
-            top = contentPadding.calculateTopPadding() + 8.dp,
-            bottom = contentPadding.calculateBottomPadding() + 88.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(key = "calendar-week", contentType = "week_strip") {
-            OtteroCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = monthLabel,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = palette.ink,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (selectedDate != today) {
-                            TextButton(onClick = { selectedIso = today.toString() }) {
-                                Text("Today", color = palette.muted)
-                            }
-                        }
-                        IconButton(
-                            onClick = { selectedIso = selectedDate.minusWeeks(1).toString() },
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
-                                contentDescription = "Previous week",
-                                tint = palette.muted,
-                            )
-                        }
-                        IconButton(
-                            onClick = { selectedIso = selectedDate.plusWeeks(1).toString() },
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                contentDescription = "Next week",
-                                tint = palette.muted,
-                            )
-                        }
-                    }
-                }
+    val activeEvent = editingEvent
+    if (activeEvent != null) {
+        EventDetailSheet(
+            engine = engine,
+            event = activeEvent,
+            onDismiss = { editingEvent = null },
+            onTrashed = { trashedId ->
+                editingEvent = null
+                feedback.undo("Event moved to trash") { engine.restoreEvent(trashedId) }
+            },
+        )
+    }
 
-                Spacer(Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    weekDays.forEach { day ->
-                        val isSelected = day == selectedDate
-                        val isToday = day == today
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { selectedIso = day.toString() },
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) palette.ink else palette.recessed,
-                            border = if (isToday && !isSelected) {
-                                BorderStroke(1.dp, palette.ink.copy(alpha = 0.4f))
-                            } else {
-                                null
-                            },
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                Text(
-                                    text = day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSelected) palette.card.copy(alpha = 0.8f) else palette.muted,
-                                )
-                                Text(
-                                    text = day.dayOfMonth.toString(),
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontWeight = if (isSelected || isToday) FontWeight.SemiBold else FontWeight.Normal,
-                                    ),
-                                    color = if (isSelected) palette.card else palette.ink,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        item(key = "calendar-quick-add", contentType = "quick_add") {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Add an event", color = palette.muted) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Add,
-                        contentDescription = null,
-                        tint = palette.muted,
-                    )
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { submitQuickAdd() }),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = palette.card,
-                    unfocusedContainerColor = palette.card,
-                    focusedBorderColor = palette.ink,
-                    unfocusedBorderColor = palette.border,
-                    focusedTextColor = palette.ink,
-                    unfocusedTextColor = palette.ink,
-                ),
-            )
-        }
-
-        if (!isLoading && events.isEmpty()) {
-            item(key = "calendar-empty", contentType = "empty") {
-                OtteroCard {
-                    EmptyPlaceholder(
-                        icon = Icons.Outlined.CalendarToday,
-                        title = "No events",
-                        hint = "Add an event above.",
-                    )
-                }
-            }
-        } else {
-            items(
-                items = events,
-                key = { "event-${it.id}-${it.dateIso}-${it.startTime ?: "all"}" },
-                contentType = { "event_card" },
-            ) { event ->
+    OtteroPullToRefresh(engine = engine, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentPadding = PaddingValues(
+                start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
+                end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
+                top = contentPadding.calculateTopPadding() + 8.dp,
+                bottom = contentPadding.calculateBottomPadding() + 88.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item(key = "calendar-header", contentType = "calendar_grid") {
                 OtteroCard {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = event.title,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = palette.ink,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            val timeLabel = if (event.allDay) {
-                                "All day"
-                            } else {
-                                listOfNotNull(event.startTime, event.endTime).joinToString(" – ")
+                        Text(
+                            text = monthLabel,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = palette.ink,
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { monthMode = !monthMode }) {
+                                Text(if (monthMode) "Week" else "Month", color = palette.muted)
                             }
-                            Text(
-                                text = timeLabel,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = palette.muted,
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    runSuspendCatching { engine.trashEvent(event.id) }
-                                        .onSuccess {
-                                            feedback.undo("Event moved to trash") {
-                                                engine.restoreEvent(event.id)
-                                            }
-                                        }
-                                        .onFailure { feedback.error(it.message ?: "Could not delete event") }
+                            if (selectedDate != today) {
+                                TextButton(onClick = { selectedIso = today.toString() }) {
+                                    Text("Today", color = palette.muted)
                                 }
-                            },
-                            modifier = Modifier.size(44.dp),
+                            }
+                            IconButton(
+                                onClick = {
+                                    selectedIso = if (monthMode) {
+                                        selectedDate.minusMonths(1).toString()
+                                    } else {
+                                        selectedDate.minusWeeks(1).toString()
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                                    contentDescription = if (monthMode) "Previous month" else "Previous week",
+                                    tint = palette.muted,
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    selectedIso = if (monthMode) {
+                                        selectedDate.plusMonths(1).toString()
+                                    } else {
+                                        selectedDate.plusWeeks(1).toString()
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                    contentDescription = if (monthMode) "Next month" else "Next week",
+                                    tint = palette.muted,
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    if (monthMode) {
+                        val headerDays = remember(firstDayOfWeek) {
+                            (0L..6L).map { DayOfWeek.of(((firstDayOfWeek.value - 1 + it.toInt()) % 7) + 1) }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.DeleteOutline,
-                                contentDescription = "Move event to trash",
-                                tint = palette.muted,
-                                modifier = Modifier.size(18.dp),
-                            )
+                            headerDays.forEach { dow ->
+                                Text(
+                                    text = dow.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = palette.muted,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            monthGridWeeks.forEach { rowDays ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    rowDays.forEach { day ->
+                                        val isSelected = day == selectedDate
+                                        val isToday = day == today
+                                        val inMonth = day.month == selectedDate.month
+                                        Surface(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { selectedIso = day.toString() },
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isSelected) palette.ink else palette.recessed.copy(alpha = if (inMonth) 1f else 0.4f),
+                                            border = if (isToday && !isSelected) {
+                                                BorderStroke(1.dp, palette.ink.copy(alpha = 0.4f))
+                                            } else {
+                                                null
+                                            },
+                                        ) {
+                                            Text(
+                                                text = day.dayOfMonth.toString(),
+                                                style = MaterialTheme.typography.labelMedium.copy(
+                                                    fontWeight = if (isSelected || isToday) FontWeight.SemiBold else FontWeight.Normal,
+                                                ),
+                                                color = when {
+                                                    isSelected -> palette.card
+                                                    inMonth -> palette.ink
+                                                    else -> palette.muted.copy(alpha = 0.55f)
+                                                },
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                modifier = Modifier.padding(vertical = 8.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            weekDays.forEach { day ->
+                                val isSelected = day == selectedDate
+                                val isToday = day == today
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { selectedIso = day.toString() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) palette.ink else palette.recessed,
+                                    border = if (isToday && !isSelected) {
+                                        BorderStroke(1.dp, palette.ink.copy(alpha = 0.4f))
+                                    } else {
+                                        null
+                                    },
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Text(
+                                            text = day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isSelected) palette.card.copy(alpha = 0.8f) else palette.muted,
+                                        )
+                                        Text(
+                                            text = day.dayOfMonth.toString(),
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontWeight = if (isSelected || isToday) FontWeight.SemiBold else FontWeight.Normal,
+                                            ),
+                                            color = if (isSelected) palette.card else palette.ink,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (holidays.isNotEmpty()) {
+                items(
+                    items = holidays,
+                    key = { "holiday-${it.dateIso}-${it.name}" },
+                    contentType = { "holiday_card" },
+                ) { holiday ->
+                    OtteroCard {
+                        Text(
+                            text = holiday.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.ink,
+                        )
+                        Text(
+                            text = "Public holiday",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.muted,
+                        )
+                    }
+                }
+            }
+
+            item(key = "calendar-quick-add", contentType = "quick_add") {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("Add an event", color = palette.muted) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = null,
+                            tint = palette.muted,
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submitQuickAdd() }),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = palette.card,
+                        unfocusedContainerColor = palette.card,
+                        focusedBorderColor = palette.ink,
+                        unfocusedBorderColor = palette.border,
+                        focusedTextColor = palette.ink,
+                        unfocusedTextColor = palette.ink,
+                    ),
+                )
+            }
+
+            if (!isLoading && events.isEmpty() && holidays.isEmpty()) {
+                item(key = "calendar-empty", contentType = "empty") {
+                    OtteroCard {
+                        EmptyPlaceholder(
+                            icon = Icons.Outlined.CalendarToday,
+                            title = "No events",
+                            hint = "Add an event above.",
+                        )
+                    }
+                }
+            } else {
+                items(
+                    items = events,
+                    key = { "event-${it.id}-${it.dateIso}-${it.startTime ?: "all"}" },
+                    contentType = { "event_card" },
+                ) { event ->
+                    OtteroCard(modifier = Modifier.clickable { editingEvent = event }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = event.title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = palette.ink,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                val timeLabel = if (event.allDay) {
+                                    "All day"
+                                } else {
+                                    listOfNotNull(
+                                        event.startTime?.let { formatDisplayTime(it, prefs.use24HourTime) },
+                                        event.endTime?.let { formatDisplayTime(it, prefs.use24HourTime) },
+                                    ).joinToString(" – ")
+                                }
+                                Text(
+                                    text = if (event.location.isNotBlank()) "$timeLabel · ${event.location}" else timeLabel,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = palette.muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        runSuspendCatching { engine.trashEvent(event.id) }
+                                            .onSuccess {
+                                                feedback.undo("Event moved to trash") {
+                                                    engine.restoreEvent(event.id)
+                                                }
+                                            }
+                                            .onFailure { feedback.error(it.message ?: "Could not delete event") }
+                                    }
+                                },
+                                modifier = Modifier.size(44.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.DeleteOutline,
+                                    contentDescription = "Move event to trash",
+                                    tint = palette.muted,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }

@@ -138,7 +138,7 @@ class OtteroFeedbackController(
             val result = snackbarHostState.showSnackbar(
                 message = trimmed,
                 actionLabel = actionLabel,
-                duration = SnackbarDuration.Short,
+                duration = if (actionLabel != null) SnackbarDuration.Long else SnackbarDuration.Short,
             )
             if (result == SnackbarResult.ActionPerformed && onAction != null) {
                 runSuspendCatching { onAction() }
