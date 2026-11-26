@@ -51,10 +51,29 @@ cargo ndk -t arm64-v8a -t x86_64 --platform 28 \
   build -p ottero-mobile-ffi ${CARGO_ARGS[@]+"${CARGO_ARGS[@]}"}
 
 echo "==> Generating Kotlin UniFFI bindings"
+# Release Android `.so` binaries strip symbols, so extract UniFFI metadata from
+# an unstripped host debug cdylib (works identically on macOS and Linux CI).
+cargo build -p ottero-mobile-ffi --lib
+HOST_LIB=""
+for candidate in target/debug/libottero_mobile_ffi.dylib target/debug/libottero_mobile_ffi.so; do
+  if [ -f "$candidate" ]; then
+    HOST_LIB="$candidate"
+    break
+  fi
+done
+if [ -z "$HOST_LIB" ]; then
+  echo "error: could not find host libottero_mobile_ffi.{dylib,so} for uniffi-bindgen" >&2
+  exit 1
+fi
 cargo run -p ottero-mobile-ffi --features cli --bin uniffi-bindgen -- \
   generate \
-  --library "target/aarch64-linux-android/${TARGET_SUBDIR}/libottero_mobile_ffi.so" \
+  --library "$HOST_LIB" \
   --language kotlin \
   --out-dir apps/android/app/src/main/kotlin
+
+if [ ! -f apps/android/app/src/main/kotlin/uniffi/ottero_mobile_ffi/ottero_mobile_ffi.kt ]; then
+  echo "error: uniffi-bindgen did not generate ottero_mobile_ffi.kt" >&2
+  exit 1
+fi
 
 echo "==> Done: jniLibs + Kotlin UniFFI bindings updated."
