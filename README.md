@@ -1,7 +1,7 @@
 <div align="center">
   <img src="assets/brand/png/icon-128.png" width="88" height="88" alt="Ottero icon: a curled otter forming an O">
   <h1>Ottero</h1>
-  <p>Notes, tasks, calendar, habits, focus and passwords.<br>Local-first. Native. Made for macOS and Windows.</p>
+  <p>Notes, tasks, calendar, habits, focus and passwords.<br>Local-first. Native. Made for macOS, Windows and Android.</p>
   <p>
     <a href="https://github.com/MohammedSafwan10/calmfold-releases/releases/latest">Download</a> ·
     <a href="CONTRIBUTING.md">Contribute</a> ·
@@ -14,7 +14,9 @@
 
 Ottero brings everyday personal tools into one quiet workspace. Your notes and
 plans live on your device. There is no required account, cloud subscription or
-telemetry. The interface is built in Rust with GPUI Kit.
+telemetry. Desktop is built in Rust with GPUI Kit; Android is native Kotlin
+(Jetpack Compose) sharing the same Rust core, SQLite storage and E2EE sync via
+UniFFI. iOS is planned next.
 
 ## Download
 
@@ -25,6 +27,7 @@ Get official builds from [Ottero Releases](https://github.com/MohammedSafwan10/c
 | macOS · Apple Silicon | `Ottero-<version>-macos-arm64.zip` — extract and move Ottero.app to Applications |
 | Windows · x64 | `Ottero-win-Setup.exe` — per-user installer |
 | Windows · portable | `Ottero-win-Portable.zip` — extract and keep the complete folder together |
+| Android · APK | `Ottero-<version>-android.apk` — universal `arm64-v8a` & `x86_64` APK (Google Play coming soon) |
 
 These early builds are not yet Apple-notarized or Windows publisher-signed, so
 the OS may warn on first installation. Update signatures are verified separately.
@@ -69,6 +72,7 @@ Rust is pinned in [`rust-toolchain.toml`](rust-toolchain.toml).
 
 - **macOS:** Xcode and its Metal toolchain.
 - **Windows:** MSVC Rust, Visual Studio C++ build tools and CMake.
+- **Android:** Android SDK 36, NDK 28, JDK 21 and `cargo-ndk` (`./scripts/build-android-rust.sh` then `cd apps/android && ./gradlew assembleDebug`).
 
 ```sh
 git clone https://github.com/MohammedSafwan10/ottero.git
