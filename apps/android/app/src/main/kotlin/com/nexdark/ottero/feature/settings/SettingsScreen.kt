@@ -2,7 +2,6 @@ package com.nexdark.ottero.feature.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -136,22 +135,11 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     val loadedInfo = info
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = if (loadedInfo != null) "Ottero ${loadedInfo.version}" else "Ottero",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = palette.ink,
-                        )
-                        Text(
-                            text = if (loadedInfo != null) {
-                                "Local SQLite schema v${loadedInfo.schemaVersion}"
-                            } else {
-                                "Local SQLite store"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = palette.muted,
-                        )
-                    }
+                    Text(
+                        text = if (loadedInfo != null) "Ottero ${loadedInfo.version}" else "Ottero",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = palette.ink,
+                    )
                 }
             }
         }

@@ -162,7 +162,7 @@ fun TasksScreen(
                 onValueChange = { draft = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("Add task (e.g. Call Sam fri !high)", color = palette.muted) },
+                placeholder = { Text("Add a task", color = palette.muted) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.Add,

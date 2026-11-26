@@ -29,13 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,22 +42,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexdark.ottero.R
-import com.nexdark.ottero.core.async.runSuspendCatching
-import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import com.nexdark.ottero.ui.theme.ThemePreference
-import kotlinx.coroutines.launch
 
 @Composable
 fun OnboardingScreen(
-    engine: OtteroEngine,
     themePreference: ThemePreference,
     onThemeChange: (ThemePreference) -> Unit,
     onComplete: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
-    val scope = rememberCoroutineScope()
-    var isSettingUp by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -81,53 +69,37 @@ fun OnboardingScreen(
                     .fillMaxSize()
                     .padding(horizontal = 24.dp),
             ) {
-                // Top brand row — quiet wordmark + Skip
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp),
+                        .padding(top = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(9.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                                contentDescription = "Ottero",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer(scaleX = 1.48f, scaleY = 1.48f),
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            text = "Ottero",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                            ),
-                            color = palette.ink,
-                        )
-                    }
-
-                    TextButton(
-                        enabled = !isSettingUp,
-                        onClick = onComplete,
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(9.dp)),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = "Skip",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = palette.muted,
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                            contentDescription = "Ottero",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(scaleX = 1.48f, scaleY = 1.48f),
                         )
                     }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "Ottero",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = palette.ink,
+                    )
                 }
 
-                // Editorial hero + 3 calm value rows
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -178,12 +150,10 @@ fun OnboardingScreen(
                     Spacer(Modifier.height(24.dp))
                 }
 
-                // Pinned bottom dock — segmented theme pill + single primary CTA
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .padding(bottom = 24.dp),
                 ) {
                     ThemeSegmentedControl(
                         selected = themePreference,
@@ -193,22 +163,7 @@ fun OnboardingScreen(
                     Spacer(Modifier.height(16.dp))
 
                     Button(
-                        enabled = !isSettingUp,
-                        onClick = {
-                            isSettingUp = true
-                            scope.launch {
-                                runSuspendCatching {
-                                    engine.createNote(
-                                        title = "Welcome to Ottero",
-                                        body = "Everything here is stored locally in SQLite and powered by Ottero's shared Rust engine.\n\nTry:\n• Adding a task like \"Review notes fri !high\"\n• Logging a daily habit in the Habits tab\n• Swiping from the left edge to open your workspace sidebar",
-                                    )
-                                    engine.quickAddTask("Explore Today, Notes, Tasks, and Habits", true)
-                                    engine.quickAddTask("Try quick-add with priority !high", true)
-                                    engine.quickAddHabit("Read 20 pages")
-                                }
-                                onComplete()
-                            }
-                        },
+                        onClick = onComplete,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(54.dp),
@@ -219,24 +174,11 @@ fun OnboardingScreen(
                         ),
                     ) {
                         Text(
-                            text = if (isSettingUp) "Preparing workspace…" else "Get started",
+                            text = "Continue",
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium,
                             ),
-                        )
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    TextButton(
-                        enabled = !isSettingUp,
-                        onClick = onComplete,
-                    ) {
-                        Text(
-                            text = "Start with an empty workspace",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = palette.muted,
                         )
                     }
                 }

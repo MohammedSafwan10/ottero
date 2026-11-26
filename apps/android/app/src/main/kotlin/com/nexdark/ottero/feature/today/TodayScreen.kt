@@ -132,11 +132,7 @@ fun TodayScreen(
         if (snap != null) {
             item(key = "tasks-header", contentType = "section_header") {
                 SectionHeader(
-                    title = if (snap.completedTodayCount > 0u) {
-                        "Due today · ${snap.completedTodayCount} done"
-                    } else {
-                        "Due today"
-                    },
+                    title = "Due today",
                     actionLabel = "All tasks",
                     onAction = onOpenTasks,
                 )
@@ -147,8 +143,8 @@ fun TodayScreen(
                     OtteroCard {
                         EmptyPlaceholder(
                             icon = Icons.Outlined.TaskAlt,
-                            title = "All caught up",
-                            hint = "Nothing is due today.",
+                            title = "No tasks due today",
+                            hint = "Add one to get started.",
                             actionLabel = "Add a task",
                             onAction = onAddTask,
                         )

@@ -115,7 +115,7 @@ fun HabitsScreen(
                 onValueChange = { draft = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("Add habit (e.g. Read 20 pages, Water 8x)", color = palette.muted) },
+                placeholder = { Text("Add a habit", color = palette.muted) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.Add,

@@ -42,9 +42,9 @@ import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.launch
 
 enum class CaptureKind(val label: String, val placeholder: String) {
-    Task("Task", "e.g. Call Sam fri !high"),
+    Task("Task", "Add a task"),
     Note("Note", "Note title"),
-    Habit("Habit", "e.g. Read 20 pages, Water 8x"),
+    Habit("Habit", "Add a habit"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -128,7 +128,7 @@ fun QuickCaptureSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Quick capture",
+                text = "New",
                 style = MaterialTheme.typography.titleMedium,
                 color = palette.ink,
             )

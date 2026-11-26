@@ -132,7 +132,6 @@ class MainActivity : ComponentActivity() {
                         is EngineState.Ready -> {
                             if (!onboardingDone) {
                                 OnboardingScreen(
-                                    engine = state.engine,
                                     themePreference = themePreference,
                                     onThemeChange = { next ->
                                         themePreference = next
