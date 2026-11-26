@@ -5,13 +5,50 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
 ## Current state (2026-11-26)
 
 - App: **Ottero by Nexdark Labs** (formerly Calmfold, formerly Keepstone).
-  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.4.1** (tagged `v0.4.1`).
-  `scripts/check.sh` passes across all workspace crates (including `ottero-mobile-ffi`) and UI integration tests.
-  - **Native Android + Rust UniFFI Foundation (`crates/mobile-ffi` + `apps/android`):**
-    - Modular Rust UniFFI crate (`crates/mobile-ffi`: `dto.rs`, `error.rs`, `notes.rs`, `tasks.rs`, `habits.rs`, `today.rs`, `lib.rs`) sharing `ottero-core` + `ottero-storage` (SQLite + FTS5 + migrations) with sanitized user-safe errors and undo restore (`restore_note`/`restore_task`).
-    - Cross-compilation script (`scripts/build-android-rust.sh`) building `arm64-v8a` + `x86_64` `libottero_mobile_ffi.so` via `cargo-ndk` (NDK 28, 16 KB page-size ready) and generating Kotlin UniFFI bindings (both gitignored in `apps/android/.gitignore`).
-    - Modular Jetpack Compose app (`apps/android`, AGP 9 / Gradle 9.1.0 / `compileSdk = 36` / `targetSdk = 36`) with Quiet Alabaster & Smoked Obsidian themes, async off-main-thread SQLite startup, serialized `OtteroEngine` dispatcher, predictive `BackHandler` + `ON_STOP` autosave flush, Undo snackbars, dynamic edge-to-edge system bar contrast, Android 12+ D2D backup exclusions (`data_extraction_rules.xml`), and adaptive NavigationBar/NavigationRail across `Today`, `Notes` (+ editor), `Tasks` (with Rust quick-add), and `Settings`.
-    - Audited by Senior Android & Rust FFI Reviewer subagent; all 13 findings fixed; `app-debug.apk` builds cleanly via Gradle. Real-device USB testing via `android` CLI / `adb` is next.
+  Branch `main`, repo `MohammedSafwan10/ottero`. Version **0.4.2** (tagged `v0.4.2`).
+  `scripts/check.sh` passes across all workspace crates (including `ottero-sync-client`,
+  `ottero-mobile-ffi`, and the 2-device E2EE sync integration test `two_device_sync.rs`).
+  - **Shared E2EE Sync Crate (`crates/sync-client`):**
+    - Extracted Desktop's sync client, engine, and canonical mutation helpers
+      (`derive_sync_account_id`, `enqueue_note_change`, `enqueue_note_tombstone`,
+      `enqueue_task_change`, `enqueue_event_change`, `enqueue_habit_change`,
+      `enqueue_vault_item_change`, `apply_decrypted_page`, `sync_once_with_apply`)
+      into shared workspace crate `ottero-sync-client` used identically by both
+      Desktop and Android.
+    - Fixed Desktop `empty_note_trash`, `empty_task_trash`, `empty_event_trash`,
+      `add_subtask`, `delete_subtask`, `open_daily_note`, and `import_notes` to
+      emit sync changes/tombstones across all devices (`v0.4.2`).
+  - **Native Android App (`crates/mobile-ffi` + `apps/android`, Phases 0–6 + Parity Waves 1–4):**
+    - Full UniFFI bridge (`crates/mobile-ffi`: `notes`, `tasks`, `calendar`,
+      `habits`, `focus`, `today`, `vault`, `sync`) sharing `ottero-core`,
+      `ottero-storage`, `ottero-crypto`, and `ottero-sync-client`.
+    - Cross-compilation script (`scripts/build-android-rust.sh`) building `arm64-v8a`
+      + `x86_64` `libottero_mobile_ffi.so` via `cargo-ndk` (NDK 28, 16 KB page-size
+      ready) and generating Kotlin UniFFI bindings from the unstripped host cdylib.
+    - Jetpack Compose app (`apps/android`, AGP 9 / Gradle 9.1.0 / `compileSdk = 36`):
+      - **Navigation & UX:** Quiet Alabaster & Smoked Obsidian themes, Quiet Loop
+        adaptive icon + Android 12+ splash screens, onboarding, hybrid 4-tab bottom
+        bar (`Today`, `Notes`, `Tasks`, `Habits`) + drawer/rail (`Calendar`, `Focus`,
+        `Passwords`, `Trash`), `QuickCaptureSheet`, `OtteroPullToRefresh`, and
+        scalable **Settings Hub + Sub-Pages + Tablet Split-Pane**.
+      - **Realtime E2EE Sync:** Account sign-in + 2FA TOTP/backup codes, hardware
+        `AndroidKeyStore` session persistence, 500 ms debounced auto-sync,
+        foreground OkHttp WebSocket listener (`/v1/sync/ws`, `HTTP 101` verified),
+        network-recovery reconnect, offline account-linked vault re-unlock, and
+        live in-place refresh in `NoteEditorScreen`.
+      - **Modules:** Notes (Markdown toolbar, `#tag` filters, live refresh), Tasks
+        (swipe-to-complete/trash with fixed Undo, `TaskDetailSheet`, Projects,
+        Subtasks, recurrence), Calendar (Week/Month toggle, `EventDetailSheet`,
+        `ottero_core::holidays`, 12h/24h & week-start prefs), Habits (7-day history
+        dots, streaks, `HabitDetailSheet` edit/archive/delete), Focus (wall-clock
+        timer persisted & synced via `Collection::Focus` + today log), Passwords
+        (Logins/Cards/Secure Notes, Favorites, TOTP, generator, `FLAG_SECURE`,
+        `BiometricPrompt`, configurable clipboard auto-clear), and Unified Trash
+        (Notes/Tasks/Events + Empty Trash).
+      - **Android Native & Release CI:** `ACTION_SEND` Share Sheet ("Save to Ottero"),
+        `OtteroAutofillService` (`BIND_AUTOFILL_SERVICE`), hardened R8/ProGuard
+        `app-release.apk` (18 MB, verified live on Android 16 hardware), and
+        automated `android` job in `.github/workflows/release.yml`.
   - **Live Cross-Device Note Sync (`0.4.1`):** Open notes live-refresh in place
     when remote sync updates arrive (`refresh_open_note` with `reloading` guard),
     and `AUTO_SYNC_DEBOUNCE` tightened from `1.5 s` to `500 ms`.
