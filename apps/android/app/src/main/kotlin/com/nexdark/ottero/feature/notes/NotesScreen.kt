@@ -306,6 +306,33 @@ fun NoteEditorScreen(
             }
     }
 
+    // Live-refresh when a remote sync updates this note while no local edits are pending.
+    LaunchedEffect(engine, noteId) {
+        engine.changes.collectLatest {
+            if (!loaded || isClosing) return@collectLatest
+            if (title != lastSavedTitle || bodyText != lastSavedBody) return@collectLatest
+            runSuspendCatching { engine.getNote(noteId) }
+                .onSuccess { detail ->
+                    if (title != lastSavedTitle || bodyText != lastSavedBody) return@onSuccess
+                    val remoteTitle = if (detail.title == "Untitled") "" else detail.title
+                    if (remoteTitle != title) {
+                        title = remoteTitle
+                        lastSavedTitle = remoteTitle
+                    }
+                    if (detail.body != bodyText) {
+                        val selStart = bodyValue.selection.start.coerceIn(0, detail.body.length)
+                        val selEnd = bodyValue.selection.end.coerceIn(0, detail.body.length)
+                        bodyText = detail.body
+                        bodyValue = TextFieldValue(detail.body, TextRange(selStart, selEnd))
+                        lastSavedBody = detail.body
+                    }
+                    if (detail.pinned != pinned) {
+                        pinned = detail.pinned
+                    }
+                }
+        }
+    }
+
     LaunchedEffect(loaded, title, bodyText) {
         if (!loaded || (title == lastSavedTitle && bodyText == lastSavedBody)) return@LaunchedEffect
         delay(500)

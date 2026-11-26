@@ -154,3 +154,10 @@ pub struct MobileSyncReport {
     pub pulled: u32,
     pub latest_seq: i64,
 }
+
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SyncWsCredentials {
+    pub ws_url: String,
+    pub bearer_token: String,
+    pub last_pull_seq: i64,
+}

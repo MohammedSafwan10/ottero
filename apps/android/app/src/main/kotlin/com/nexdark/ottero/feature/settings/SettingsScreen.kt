@@ -39,6 +39,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -84,6 +85,7 @@ fun SettingsScreen(
     var info by remember { mutableStateOf<AppInfo?>(null) }
     var accountStatus by remember { mutableStateOf<MobileAccountStatus?>(null) }
     var isSyncing by remember { mutableStateOf(false) }
+    val isLive by engine.isRealtimeConnected.collectAsState()
 
     BackHandler(enabled = true) { onBack() }
 
@@ -149,6 +151,7 @@ fun SettingsScreen(
                             color = palette.ink,
                         )
                         val syncMeta = buildList {
+                            if (isLive) add("Live")
                             status.lastSyncedAtMs?.let { ms ->
                                 add("Last synced ${formatRelativeSyncTime(ms)}")
                             }

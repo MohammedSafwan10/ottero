@@ -67,6 +67,8 @@ dependencies {
   implementation(libs.jna) {
     artifact { type = "aar" }
   }
+  // Realtime WebSocket sync listener
+  implementation(libs.okhttp)
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests

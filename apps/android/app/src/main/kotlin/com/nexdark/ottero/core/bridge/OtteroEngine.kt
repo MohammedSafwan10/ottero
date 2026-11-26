@@ -2,6 +2,7 @@ package com.nexdark.ottero.core.bridge
 
 import android.content.Context
 import androidx.compose.runtime.Stable
+import com.nexdark.ottero.core.sync.SyncRealtimeClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -10,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -27,6 +29,7 @@ import uniffi.ottero_mobile_ffi.MobileVaultStatus
 import uniffi.ottero_mobile_ffi.NoteDetail
 import uniffi.ottero_mobile_ffi.NoteListItem
 import uniffi.ottero_mobile_ffi.OtteroMobile
+import uniffi.ottero_mobile_ffi.SyncWsCredentials
 import uniffi.ottero_mobile_ffi.TagCount
 import uniffi.ottero_mobile_ffi.TaskItem
 import uniffi.ottero_mobile_ffi.TodaySnapshot
@@ -34,6 +37,7 @@ import uniffi.ottero_mobile_ffi.TotpCodeSnapshot
 import uniffi.ottero_mobile_ffi.VaultEntryDetail
 import uniffi.ottero_mobile_ffi.VaultEntrySummary
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Thread-safe Kotlin facade over Ottero's Rust SQLite core (`OtteroMobile`).
@@ -48,8 +52,12 @@ class OtteroEngine(private val mobile: OtteroMobile) {
     private val appScope = CoroutineScope(SupervisorJob() + dbDispatcher)
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
+    private val syncNeededAgain = AtomicBoolean(false)
     @Volatile
     private var autoSyncJob: Job? = null
+
+    val realtime: SyncRealtimeClient = SyncRealtimeClient(this)
+    val isRealtimeConnected: StateFlow<Boolean> = realtime.isLive
 
     private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 32)
     val changes: SharedFlow<Unit> = _changes.asSharedFlow()
@@ -68,8 +76,31 @@ class OtteroEngine(private val mobile: OtteroMobile) {
                 withContext(dbDispatcher) { mobile.accountStatus().signedIn }
             }.getOrDefault(false)
             if (signedIn) {
-                runCatching { syncNow() }
+                requestCoalescedSync()
             }
+        }
+    }
+
+    /**
+     * Runs a sync cycle, coalescing concurrent triggers (e.g. WebSocket
+     * `seq_advanced` arriving mid-sync) into at most one follow-up pass.
+     */
+    suspend fun requestCoalescedSync() {
+        if (!syncMutex.tryLock()) {
+            syncNeededAgain.set(true)
+            return
+        }
+        try {
+            do {
+                syncNeededAgain.set(false)
+                val ran = runCatching {
+                    withContext(Dispatchers.IO) {
+                        mobile.syncNow().also { _changes.tryEmit(Unit) }
+                    }
+                }.isSuccess
+            } while (ran && syncNeededAgain.getAndSet(false))
+        } finally {
+            syncMutex.unlock()
         }
     }
 
@@ -281,14 +312,20 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         password: String,
         secretKey: String,
     ): MobileSignInResult = withContext(Dispatchers.IO) {
-        mobile.accountSignIn(email, password, secretKey).also { _changes.tryEmit(Unit) }
+        mobile.accountSignIn(email, password, secretKey).also {
+            _changes.tryEmit(Unit)
+            if (it.session != null) realtime.reconnectNow()
+        }
     }
 
     suspend fun accountVerifyTwoStep(
         code: String,
         isBackupCode: Boolean,
     ): MobileSignInResult = withContext(Dispatchers.IO) {
-        mobile.accountVerifyTwoStep(code, isBackupCode).also { _changes.tryEmit(Unit) }
+        mobile.accountVerifyTwoStep(code, isBackupCode).also {
+            _changes.tryEmit(Unit)
+            if (it.session != null) realtime.reconnectNow()
+        }
     }
 
     suspend fun accountRestoreSession(session: AccountSessionBundle) = withContext(Dispatchers.IO) {
@@ -299,11 +336,17 @@ class OtteroEngine(private val mobile: OtteroMobile) {
             session.accountKeyB64,
         )
         _changes.tryEmit(Unit)
+        realtime.reconnectNow()
     }
 
     suspend fun accountSignOut() = withContext(Dispatchers.IO) {
+        realtime.stop()
         mobile.accountSignOut()
         _changes.tryEmit(Unit)
+    }
+
+    suspend fun syncWsCredentials(): SyncWsCredentials? = withContext(dbDispatcher) {
+        mobile.syncWsCredentials()
     }
 
     suspend fun vaultUnlockWithAccount(): Boolean = withContext(dbDispatcher) {

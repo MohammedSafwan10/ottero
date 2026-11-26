@@ -149,6 +149,14 @@ pub(crate) fn list_trashed_notes(store: &Store) -> Result<Vec<NoteListItem>, Mob
 pub(crate) fn delete_note_permanently(store: &mut Store, id: &str) -> Result<(), MobileError> {
     let note_id = parse_note_id(id)?;
     store.delete_note_permanently(note_id)?;
+    sync::enqueue_mutation(
+        store,
+        Collection::Notes,
+        &note_id.to_string(),
+        &["record"],
+        true,
+        &serde_json::json!({ "id": note_id }),
+    );
     Ok(())
 }
 

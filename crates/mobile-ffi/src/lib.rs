@@ -21,8 +21,8 @@ use vault::VaultKeyState;
 pub use dto::{
     AccountSessionBundle, AppInfo, CalendarEventItem, HabitItem, MobileAccountStatus,
     MobileSignInResult, MobileSignInStatus, MobileSyncReport, MobileTaskFilter, MobileVaultStatus,
-    NoteDetail, NoteListItem, TagCount, TaskItem, TodaySnapshot, TotpCodeSnapshot,
-    VaultEntryDetail, VaultEntrySummary,
+    NoteDetail, NoteListItem, SyncWsCredentials, TagCount, TaskItem, TodaySnapshot,
+    TotpCodeSnapshot, VaultEntryDetail, VaultEntrySummary,
 };
 pub use error::MobileError;
 
@@ -362,6 +362,12 @@ impl OtteroMobile {
 
     pub fn vault_unlock_with_account(&self) -> Result<bool, MobileError> {
         sync::unlock_vault_with_account(&self.store, &self.vault_key, &self.account)
+    }
+
+    pub fn sync_ws_credentials(&self) -> Result<Option<SyncWsCredentials>, MobileError> {
+        let store = self.lock()?;
+        let acct = self.lock_account()?;
+        sync::ws_credentials(&store, &acct)
     }
 }
 

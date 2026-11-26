@@ -60,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
@@ -116,6 +117,7 @@ fun OtteroApp(
 ) {
     val palette = LocalOtteroPalette.current
     val feedback = LocalOtteroFeedback.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var destination by rememberSaveable { mutableStateOf(Destination.Today) }
@@ -126,18 +128,20 @@ fun OtteroApp(
     var isCreatingNote by remember { mutableStateOf(false) }
     val focusTimer = rememberFocusTimerState()
 
-    // Lock vault whenever the app is backgrounded, regardless of which tab is active.
+    // Lock vault and pause realtime WS whenever the app is backgrounded.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         engine.lockVaultNow()
+        engine.realtime.stop()
     }
 
-    // Re-unlock account-linked vault offline and quietly sync when returning to the foreground.
+    // Re-unlock account-linked vault offline, connect live WS, and sync on foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        engine.realtime.start(context)
         scope.launch {
             runSuspendCatching { engine.vaultUnlockWithAccount() }
             val status = runSuspendCatching { engine.accountStatus() }.getOrNull()
             if (status?.signedIn == true) {
-                runSuspendCatching { engine.syncNow() }
+                runSuspendCatching { engine.requestCoalescedSync() }
             }
         }
     }

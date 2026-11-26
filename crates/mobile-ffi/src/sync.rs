@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::dto::{
     AccountSessionBundle, MobileAccountStatus, MobileSignInResult, MobileSignInStatus,
-    MobileSyncReport,
+    MobileSyncReport, SyncWsCredentials,
 };
 use crate::error::MobileError;
 use crate::vault::VaultKeyState;
@@ -630,6 +630,27 @@ pub(crate) fn account_status(
         last_synced_at_ms: sync.last_synced_at.map(|t| t.as_millisecond()),
         pending_outbox_count: u32::try_from(pending).unwrap_or(u32::MAX),
     })
+}
+
+/// Returns the WebSocket URL (`wss://.../v1/sync/ws`), bearer token, and current
+/// pull cursor for the active signed-in session so Android's foreground
+/// realtime listener can receive instant `seq_advanced` notices.
+pub(crate) fn ws_credentials(
+    store: &Store,
+    account_state: &AccountSessionState,
+) -> Result<Option<SyncWsCredentials>, MobileError> {
+    let Some(active) = account_state.active.as_ref() else {
+        return Ok(None);
+    };
+    let sync = store.sync_state()?;
+    let ws_base = DEFAULT_SYNC_URL
+        .trim_end_matches('/')
+        .replacen("https://", "wss://", 1);
+    Ok(Some(SyncWsCredentials {
+        ws_url: format!("{ws_base}/v1/sync/ws"),
+        bearer_token: (*active.bearer_token).clone(),
+        last_pull_seq: sync.last_pull_seq,
+    }))
 }
 
 /// Runs one full end-to-end encrypted push + pull sync cycle with Ottero Cloud.
