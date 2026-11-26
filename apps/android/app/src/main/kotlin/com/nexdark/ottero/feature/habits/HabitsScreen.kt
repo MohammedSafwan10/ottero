@@ -143,7 +143,7 @@ fun HabitsScreen(
                     EmptyPlaceholder(
                         icon = Icons.Outlined.Spa,
                         title = "No habits yet",
-                        hint = "Add a daily routine above and tap it each day to log.",
+                        hint = "Add a habit above.",
                     )
                 }
             }

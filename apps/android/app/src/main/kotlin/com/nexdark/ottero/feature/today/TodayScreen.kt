@@ -216,7 +216,7 @@ fun TodayScreen(
                         EmptyPlaceholder(
                             icon = Icons.Outlined.Description,
                             title = "No notes yet",
-                            hint = "Capture ideas, meeting notes, or journal entries.",
+                            hint = "Write your first note.",
                             actionLabel = "New note",
                             onAction = onCreateNote,
                         )

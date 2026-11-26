@@ -52,7 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
@@ -291,26 +293,27 @@ fun OtteroApp(
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                                contentDescription = null,
+                            Box(
                                 modifier = Modifier
                                     .size(32.dp)
-                                    .clip(RoundedCornerShape(8.dp)),
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text(
-                                    text = "Ottero",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = palette.ink,
-                                )
-                                Text(
-                                    text = "Local workspace",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = palette.muted,
+                                    .clip(RoundedCornerShape(9.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer(scaleX = 1.48f, scaleY = 1.48f),
                                 )
                             }
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = "Ottero",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = palette.ink,
+                            )
                         }
 
                         Spacer(Modifier.height(12.dp))
