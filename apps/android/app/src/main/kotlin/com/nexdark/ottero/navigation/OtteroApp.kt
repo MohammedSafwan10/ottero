@@ -28,6 +28,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -215,16 +216,16 @@ fun OtteroApp(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                NavigationRailItem(
-                    selected = false,
+                IconButton(
                     onClick = { showSettings = true },
-                    icon = { Icon(Icons.Outlined.Settings, contentDescription = "Settings") },
-                    label = { Text("Settings") },
-                    colors = NavigationRailItemDefaults.colors(
-                        unselectedIconColor = palette.muted,
-                        unselectedTextColor = palette.muted,
-                    ),
-                )
+                    modifier = Modifier.padding(bottom = 12.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = "Settings",
+                        tint = palette.muted,
+                    )
+                }
             }
             Scaffold(
                 modifier = Modifier.weight(1f),
@@ -234,7 +235,6 @@ fun OtteroApp(
                         title = tab.label,
                         showDrawerButton = false,
                         onOpenDrawer = {},
-                        onOpenSettings = { showSettings = true },
                     )
                 },
                 snackbarHost = { OtteroSnackbarHost(feedback) },
@@ -290,30 +290,45 @@ fun OtteroApp(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(9.dp)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer(scaleX = 1.48f, scaleY = 1.48f),
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(9.dp)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer(scaleX = 1.48f, scaleY = 1.48f),
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = "Ottero",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = palette.ink,
                                 )
                             }
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = "Ottero",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = palette.ink,
-                            )
+                            IconButton(
+                                onClick = {
+                                    scope.launch { drawerState.close() }
+                                    showSettings = true
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Settings,
+                                    contentDescription = "Settings",
+                                    tint = palette.muted,
+                                )
+                            }
                         }
 
                         Spacer(Modifier.height(12.dp))
@@ -340,26 +355,6 @@ fun OtteroApp(
                                 shape = RoundedCornerShape(10.dp),
                             )
                         }
-
-                        Spacer(Modifier.weight(1f))
-                        HorizontalDivider(color = palette.border)
-                        Spacer(Modifier.height(8.dp))
-
-                        NavigationDrawerItem(
-                            label = { Text("Settings") },
-                            icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                            selected = false,
-                            onClick = {
-                                scope.launch { drawerState.close() }
-                                showSettings = true
-                            },
-                            colors = NavigationDrawerItemDefaults.colors(
-                                unselectedContainerColor = palette.recessed,
-                                unselectedIconColor = palette.muted,
-                                unselectedTextColor = palette.ink,
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                        )
                     }
                 }
             },
@@ -371,7 +366,6 @@ fun OtteroApp(
                         title = tab.label,
                         showDrawerButton = true,
                         onOpenDrawer = { scope.launch { drawerState.open() } },
-                        onOpenSettings = { showSettings = true },
                     )
                 },
                 snackbarHost = { OtteroSnackbarHost(feedback) },

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,7 +57,6 @@ fun OtteroTopChrome(
     title: String,
     showDrawerButton: Boolean,
     onOpenDrawer: () -> Unit,
-    onOpenSettings: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
     TopAppBar(
@@ -66,14 +64,13 @@ fun OtteroTopChrome(
             containerColor = palette.canvas,
             titleContentColor = palette.ink,
             navigationIconContentColor = palette.ink,
-            actionIconContentColor = palette.muted,
         ),
         navigationIcon = {
             if (showDrawerButton) {
                 IconButton(onClick = onOpenDrawer) {
                     Icon(
                         imageVector = Icons.Outlined.Menu,
-                        contentDescription = "Open workspace menu",
+                        contentDescription = "Open menu",
                     )
                 }
             }
@@ -84,14 +81,6 @@ fun OtteroTopChrome(
                 style = MaterialTheme.typography.titleMedium,
                 color = palette.ink,
             )
-        },
-        actions = {
-            IconButton(onClick = onOpenSettings) {
-                Icon(
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "Settings",
-                )
-            }
         },
     )
 }
