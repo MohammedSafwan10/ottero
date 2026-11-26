@@ -79,6 +79,7 @@ import uniffi.ottero_mobile_ffi.VaultEntrySummary
 fun PasswordsScreen(
     engine: OtteroEngine,
     contentPadding: PaddingValues,
+    onOpenSettings: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
     val feedback = LocalOtteroFeedback.current
@@ -153,12 +154,9 @@ fun PasswordsScreen(
         null -> Unit
 
         MobileVaultStatus.NOT_SET_UP -> {
-            VaultSetupPane(
+            VaultAccountPromptPane(
                 contentPadding = outerPadding,
-                onCreate = { pw ->
-                    runSuspendCatching { engine.vaultSetup(pw) }
-                        .onFailure { feedback.error(it.message ?: "Could not set up vault") }
-                },
+                onOpenSettings = onOpenSettings,
             )
         }
 
@@ -323,100 +321,32 @@ fun PasswordsScreen(
 }
 
 @Composable
-private fun VaultSetupPane(
+private fun VaultAccountPromptPane(
     contentPadding: PaddingValues,
-    onCreate: suspend (String) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
-    val feedback = LocalOtteroFeedback.current
-    val scope = rememberCoroutineScope()
-    var password by remember { mutableStateOf("") }
-    var confirm by remember { mutableStateOf("") }
-    var show by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            password = ""
-            confirm = ""
-        }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .imePadding()
             .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         OtteroCard {
             Text(
-                text = "Set up Passwords",
+                text = "Sign in to use Passwords",
                 style = MaterialTheme.typography.titleMedium,
                 color = palette.ink,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
-                text = "Encrypted on this device with your master password.",
+                text = "Your Ottero account unlocks Passwords and keeps them synced across your devices.",
                 style = MaterialTheme.typography.bodySmall,
                 color = palette.muted,
             )
-            Spacer(Modifier.height(14.dp))
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Master password (8+ characters)", color = palette.muted) },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    autoCorrectEnabled = false,
-                    imeAction = ImeAction.Next,
-                ),
-                visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { show = !show }) {
-                        Icon(
-                            imageVector = if (show) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = if (show) "Hide" else "Show",
-                            tint = palette.muted,
-                        )
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = confirm,
-                onValueChange = { confirm = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Confirm master password", color = palette.muted) },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    autoCorrectEnabled = false,
-                    imeAction = ImeAction.Done,
-                ),
-                visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-                shape = RoundedCornerShape(12.dp),
-            )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             Button(
-                enabled = !busy && password.length >= 8 && password == confirm,
-                onClick = {
-                    if (password != confirm) {
-                        feedback.error("Passwords do not match")
-                        return@Button
-                    }
-                    val submitted = password
-                    busy = true
-                    scope.launch {
-                        onCreate(submitted)
-                        password = ""
-                        confirm = ""
-                        busy = false
-                    }
-                },
+                onClick = onOpenSettings,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
@@ -426,7 +356,7 @@ private fun VaultSetupPane(
                     contentColor = palette.card,
                 ),
             ) {
-                Text(if (busy) "Creating…" else "Create vault")
+                Text("Open Settings")
             }
         }
     }

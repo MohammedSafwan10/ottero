@@ -306,6 +306,7 @@ fun OtteroApp(
                             },
                             onCreateNote = ::createAndOpenNote,
                             onOpenQuickCapture = { captureSheetKind = it },
+                            onOpenSettings = { showSettings = true },
                         )
                     }
                 }
@@ -460,6 +461,7 @@ fun OtteroApp(
                         },
                         onCreateNote = ::createAndOpenNote,
                         onOpenQuickCapture = { captureSheetKind = it },
+                        onOpenSettings = { showSettings = true },
                     )
                 }
             }
@@ -501,6 +503,7 @@ private fun DestinationContent(
     onOpenNote: (String) -> Unit,
     onCreateNote: () -> Unit,
     onOpenQuickCapture: (CaptureKind) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     when (destination) {
         Destination.Today -> TodayScreen(
@@ -544,6 +547,7 @@ private fun DestinationContent(
         Destination.Passwords -> PasswordsScreen(
             engine = engine,
             contentPadding = contentPadding,
+            onOpenSettings = onOpenSettings,
         )
 
         Destination.Trash -> TrashScreen(
