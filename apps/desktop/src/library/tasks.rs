@@ -229,12 +229,26 @@ impl Library {
         self.store
             .save_task(&task)
             .context("Couldn't add the subtask")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Tasks,
+            &task.id().to_string(),
+            ottero_sync_client::ALL_TASK_SYNC_FIELDS,
+            false,
+            &crate::sync::SyncTaskPayload::from(&task),
+        );
         cx.emit(LibraryEvent::TasksChanged);
         Ok(task.id())
     }
 
     pub fn delete_subtask(&mut self, id: TaskId, cx: &mut Context<Self>) -> Result<()> {
         self.store.delete_task_permanently(id)?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Tasks,
+            &id.to_string(),
+            &["deleted"],
+            true,
+            &serde_json::json!({}),
+        );
         cx.emit(LibraryEvent::TasksChanged);
         Ok(())
     }
@@ -390,7 +404,17 @@ impl Library {
     }
 
     pub fn empty_task_trash(&mut self, cx: &mut Context<Self>) -> Result<usize> {
+        let trashed = self.store.list_tasks(TaskFilter::Trash)?;
         let n = self.store.empty_task_trash()?;
+        for task in trashed {
+            self.record_sync(
+                ottero_sync_protocol::Collection::Tasks,
+                &task.id().to_string(),
+                &["deleted"],
+                true,
+                &serde_json::json!({}),
+            );
+        }
         cx.emit(LibraryEvent::TasksChanged);
         Ok(n)
     }

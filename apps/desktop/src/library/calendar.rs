@@ -323,6 +323,13 @@ impl Library {
             self.store
                 .delete_event_permanently(event.id())
                 .context("Couldn't empty the trash")?;
+            self.record_sync(
+                ottero_sync_protocol::Collection::Events,
+                &event.id().to_string(),
+                &["record"],
+                true,
+                &serde_json::json!({}),
+            );
         }
         cx.emit(LibraryEvent::EventsChanged);
         Ok(trashed.len())
