@@ -106,3 +106,53 @@ pub(crate) fn restore_task(store: &mut Store, id: &str) -> Result<TaskItem, Mobi
     store.save_task(&task)?;
     Ok(task_to_dto(&task, today))
 }
+
+pub(crate) fn update_task(
+    store: &mut Store,
+    id: &str,
+    title: &str,
+    notes: &str,
+    priority: u8,
+    due_date: Option<String>,
+) -> Result<TaskItem, MobileError> {
+    let task_id = parse_task_id(id)?;
+    let now = clock::now();
+    let today = clock::today();
+    let mut task = store.task(task_id)?.ok_or_else(|| MobileError::NotFound {
+        reason: "Task not found".into(),
+    })?;
+
+    let mut changed = false;
+    if task.title() != title.trim() {
+        task.rename(title, now)?;
+        changed = true;
+    }
+    if task.notes() != notes {
+        task.set_notes(notes, now)?;
+        changed = true;
+    }
+    let parsed_priority = match priority {
+        1 => Priority::Low,
+        2 => Priority::Medium,
+        3 => Priority::High,
+        _ => Priority::None,
+    };
+    if task.priority() != parsed_priority {
+        task.set_priority(parsed_priority, now)?;
+        changed = true;
+    }
+    let parsed_due = match due_date.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(iso) => Some(iso.parse::<Date>().map_err(|_| MobileError::InvalidInput {
+            reason: "Invalid due date".into(),
+        })?),
+        None => None,
+    };
+    if task.due() != parsed_due {
+        task.set_due(parsed_due, now)?;
+        changed = true;
+    }
+    if changed {
+        store.save_task(&task)?;
+    }
+    Ok(task_to_dto(&task, today))
+}

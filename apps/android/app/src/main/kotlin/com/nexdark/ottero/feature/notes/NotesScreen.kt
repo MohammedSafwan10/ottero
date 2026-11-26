@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +57,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -73,6 +78,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import uniffi.ottero_mobile_ffi.NoteListItem
+import uniffi.ottero_mobile_ffi.TagCount
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -86,23 +92,36 @@ fun NotesListScreen(
     val feedback = LocalOtteroFeedback.current
     val layoutDirection = LocalLayoutDirection.current
     var query by rememberSaveable { mutableStateOf("") }
+    var selectedTag by rememberSaveable { mutableStateOf<String?>(null) }
+    var tags by remember { mutableStateOf<List<TagCount>>(emptyList()) }
     var notes by remember { mutableStateOf<List<NoteListItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(engine) {
         combine(
             snapshotFlow { query }.debounce(150),
+            snapshotFlow { selectedTag },
             engine.changes.onStart { emit(Unit) },
-        ) { q, _ -> q }.collectLatest { q ->
-            runSuspendCatching { engine.listNotes(q.ifBlank { null }) }
-                .onSuccess {
-                    notes = it
-                    isLoading = false
+        ) { q, tag, _ -> q to tag }.collectLatest { (q, tag) ->
+            runSuspendCatching {
+                val loadedTags = engine.listTags()
+                val loadedNotes = when {
+                    q.isNotBlank() -> engine.listNotes(q)
+                    tag != null -> engine.listNotesByTag(tag)
+                    else -> engine.listNotes(null)
                 }
-                .onFailure {
-                    isLoading = false
-                    feedback.error(it.message ?: "Could not load notes")
+                loadedTags to loadedNotes
+            }.onSuccess { (loadedTags, loadedNotes) ->
+                tags = loadedTags
+                if (selectedTag != null && loadedTags.none { it.name == selectedTag }) {
+                    selectedTag = null
                 }
+                notes = loadedNotes
+                isLoading = false
+            }.onFailure {
+                isLoading = false
+                feedback.error(it.message ?: "Could not load notes")
+            }
         }
     }
 
@@ -157,15 +176,44 @@ fun NotesListScreen(
             )
         }
 
+        if (tags.isNotEmpty() && query.isBlank()) {
+            item(key = "notes-tags", contentType = "tags") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(
+                        items = tags,
+                        key = { "tag-${it.name}" },
+                        contentType = { "tag_chip" },
+                    ) { tag ->
+                        val active = selectedTag == tag.name
+                        FilterChip(
+                            selected = active,
+                            onClick = { selectedTag = if (active) null else tag.name },
+                            label = { Text("#${tag.name}") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = palette.ink,
+                                selectedLabelColor = palette.card,
+                                containerColor = palette.card,
+                                labelColor = palette.muted,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+
         if (!isLoading && notes.isEmpty()) {
             item(key = "notes-empty", contentType = "empty") {
                 OtteroCard {
                     EmptyPlaceholder(
                         icon = Icons.Outlined.Description,
-                        title = if (query.isBlank()) "No notes yet" else "No matches",
-                        hint = if (query.isBlank()) "Write your first note." else "Try fewer or different words.",
-                        actionLabel = if (query.isBlank()) "New note" else null,
-                        onAction = if (query.isBlank()) onCreateNote else null,
+                        title = if (query.isBlank() && selectedTag == null) "No notes yet" else "No matches",
+                        hint = if (query.isBlank() && selectedTag == null) {
+                            "Write your first note."
+                        } else {
+                            "Try another search or tag."
+                        },
+                        actionLabel = if (query.isBlank() && selectedTag == null) "New note" else null,
+                        onAction = if (query.isBlank() && selectedTag == null) onCreateNote else null,
                     )
                 }
             }
@@ -224,22 +272,29 @@ fun NoteEditorScreen(
     val scope = rememberCoroutineScope()
 
     var title by rememberSaveable(noteId) { mutableStateOf("") }
-    var body by rememberSaveable(noteId) { mutableStateOf("") }
+    var bodyText by rememberSaveable(noteId) { mutableStateOf("") }
+    var bodyValue by remember(noteId) {
+        mutableStateOf(TextFieldValue(bodyText, TextRange(bodyText.length)))
+    }
     var pinned by rememberSaveable(noteId) { mutableStateOf(false) }
     var loaded by rememberSaveable(noteId) { mutableStateOf(false) }
     var lastSavedTitle by rememberSaveable(noteId) { mutableStateOf("") }
     var lastSavedBody by rememberSaveable(noteId) { mutableStateOf("") }
     var isClosing by remember { mutableStateOf(false) }
 
-    val isDirty = loaded && (title != lastSavedTitle || body != lastSavedBody)
+    val isDirty = loaded && (title != lastSavedTitle || bodyText != lastSavedBody)
 
     LaunchedEffect(noteId) {
-        if (loaded) return@LaunchedEffect
+        if (loaded) {
+            bodyValue = TextFieldValue(bodyText, TextRange(bodyText.length))
+            return@LaunchedEffect
+        }
         runSuspendCatching { engine.getNote(noteId) }
             .onSuccess { detail ->
                 val initialTitle = if (detail.title == "Untitled") "" else detail.title
                 title = initialTitle
-                body = detail.body
+                bodyText = detail.body
+                bodyValue = TextFieldValue(detail.body, TextRange(detail.body.length))
                 pinned = detail.pinned
                 lastSavedTitle = initialTitle
                 lastSavedBody = detail.body
@@ -251,22 +306,22 @@ fun NoteEditorScreen(
             }
     }
 
-    LaunchedEffect(loaded, title, body) {
-        if (!loaded || (title == lastSavedTitle && body == lastSavedBody)) return@LaunchedEffect
+    LaunchedEffect(loaded, title, bodyText) {
+        if (!loaded || (title == lastSavedTitle && bodyText == lastSavedBody)) return@LaunchedEffect
         delay(500)
-        runSuspendCatching { engine.updateNote(noteId, title, body) }
+        runSuspendCatching { engine.updateNote(noteId, title, bodyText) }
             .onSuccess {
                 lastSavedTitle = title
-                lastSavedBody = body
+                lastSavedBody = bodyText
             }
             .onFailure { feedback.error(it.message ?: "Could not save note") }
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (isDirty) {
-            engine.flushNoteAsync(noteId, title, body)
+            engine.flushNoteAsync(noteId, title, bodyText)
             lastSavedTitle = title
-            lastSavedBody = body
+            lastSavedBody = bodyText
         }
     }
 
@@ -274,13 +329,13 @@ fun NoteEditorScreen(
         if (isClosing) return
         isClosing = true
         scope.launch {
-            if (loaded && isNewNote && title.isBlank() && body.isBlank()) {
+            if (loaded && isNewNote && title.isBlank() && bodyText.isBlank()) {
                 runSuspendCatching { engine.trashNote(noteId) }
             } else if (isDirty) {
-                runSuspendCatching { engine.updateNote(noteId, title, body) }
+                runSuspendCatching { engine.updateNote(noteId, title, bodyText) }
                     .onSuccess {
                         lastSavedTitle = title
-                        lastSavedBody = body
+                        lastSavedBody = bodyText
                     }
                     .onFailure { feedback.error(it.message ?: "Could not save note") }
             }
@@ -362,46 +417,65 @@ fun NoteEditorScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .imePadding(),
         ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (loaded) {
+                    BasicTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.headlineMedium.copy(color = palette.ink),
+                        cursorBrush = SolidColor(palette.ink),
+                        decorationBox = { inner ->
+                            if (title.isEmpty()) {
+                                Text(
+                                    text = "Untitled",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = palette.muted.copy(alpha = 0.6f),
+                                )
+                            }
+                            inner()
+                        },
+                    )
+                    BasicTextField(
+                        value = bodyValue,
+                        onValueChange = { next ->
+                            bodyValue = next
+                            bodyText = next.text
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 420.dp),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.ink),
+                        cursorBrush = SolidColor(palette.ink),
+                        decorationBox = { inner ->
+                            if (bodyValue.text.isEmpty()) {
+                                Text(
+                                    text = "Start writing…",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = palette.muted.copy(alpha = 0.6f),
+                                )
+                            }
+                            inner()
+                        },
+                    )
+                }
+            }
+
             if (loaded) {
-                BasicTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = MaterialTheme.typography.headlineMedium.copy(color = palette.ink),
-                    cursorBrush = SolidColor(palette.ink),
-                    decorationBox = { inner ->
-                        if (title.isEmpty()) {
-                            Text(
-                                text = "Untitled",
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = palette.muted.copy(alpha = 0.6f),
-                            )
-                        }
-                        inner()
-                    },
-                )
-                BasicTextField(
-                    value = body,
-                    onValueChange = { body = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 480.dp),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.ink),
-                    cursorBrush = SolidColor(palette.ink),
-                    decorationBox = { inner ->
-                        if (body.isEmpty()) {
-                            Text(
-                                text = "Start writing…",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = palette.muted.copy(alpha = 0.6f),
-                            )
-                        }
-                        inner()
+                NoteMarkdownToolbar(
+                    value = bodyValue,
+                    onValueChange = { next ->
+                        bodyValue = next
+                        bodyText = next.text
                     },
                 )
             }

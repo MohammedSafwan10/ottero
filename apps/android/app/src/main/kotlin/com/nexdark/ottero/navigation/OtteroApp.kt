@@ -19,10 +19,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Spa
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.FloatingActionButton
@@ -66,24 +69,37 @@ import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.OtteroTopChrome
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.core.feedback.OtteroSnackbarHost
+import com.nexdark.ottero.feature.calendar.CalendarScreen
 import com.nexdark.ottero.feature.capture.CaptureKind
 import com.nexdark.ottero.feature.capture.QuickCaptureSheet
+import com.nexdark.ottero.feature.focus.FocusScreen
 import com.nexdark.ottero.feature.habits.HabitsScreen
 import com.nexdark.ottero.feature.notes.NoteEditorScreen
 import com.nexdark.ottero.feature.notes.NotesListScreen
 import com.nexdark.ottero.feature.settings.SettingsScreen
 import com.nexdark.ottero.feature.tasks.TasksScreen
 import com.nexdark.ottero.feature.today.TodayScreen
+import com.nexdark.ottero.feature.trash.TrashScreen
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import com.nexdark.ottero.ui.theme.ThemePreference
 import kotlinx.coroutines.launch
 
-private enum class TopDestination(val label: String, val icon: ImageVector) {
-    Today("Today", Icons.Outlined.WbSunny),
-    Notes("Notes", Icons.Outlined.Description),
-    Tasks("Tasks", Icons.Outlined.CheckCircle),
-    Habits("Habits", Icons.Outlined.Spa),
+private enum class Destination(
+    val label: String,
+    val icon: ImageVector,
+    val inBottomBar: Boolean,
+) {
+    Today("Today", Icons.Outlined.WbSunny, true),
+    Notes("Notes", Icons.Outlined.Description, true),
+    Tasks("Tasks", Icons.Outlined.CheckCircle, true),
+    Habits("Habits", Icons.Outlined.Spa, true),
+    Calendar("Calendar", Icons.Outlined.CalendarToday, false),
+    Focus("Focus", Icons.Outlined.Timer, false),
+    Trash("Trash", Icons.Outlined.DeleteOutline, false),
 }
+
+private val BottomDestinations = Destination.entries.filter { it.inBottomBar }
+private val DrawerSecondaryDestinations = Destination.entries.filter { !it.inBottomBar }
 
 @Composable
 fun OtteroApp(
@@ -95,7 +111,7 @@ fun OtteroApp(
     val feedback = LocalOtteroFeedback.current
     val scope = rememberCoroutineScope()
 
-    var tab by rememberSaveable { mutableStateOf(TopDestination.Today) }
+    var destination by rememberSaveable { mutableStateOf(Destination.Today) }
     var activeNoteId by rememberSaveable { mutableStateOf<String?>(null) }
     var activeNoteIsNew by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -149,23 +165,33 @@ fun OtteroApp(
     val windowWidthDp = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
     val useRail = windowWidthDp >= 600.dp
 
+    val showFab = destination in listOf(
+        Destination.Today,
+        Destination.Notes,
+        Destination.Tasks,
+        Destination.Habits,
+    )
+
     val fab: @Composable () -> Unit = {
-        FloatingActionButton(
-            onClick = {
-                when (tab) {
-                    TopDestination.Notes -> createAndOpenNote()
-                    TopDestination.Today -> captureSheetKind = CaptureKind.Task
-                    TopDestination.Tasks -> captureSheetKind = CaptureKind.Task
-                    TopDestination.Habits -> captureSheetKind = CaptureKind.Habit
-                }
-            },
-            containerColor = palette.ink,
-            contentColor = palette.card,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Add,
-                contentDescription = if (tab == TopDestination.Notes) "New note" else "Quick capture",
-            )
+        if (showFab) {
+            FloatingActionButton(
+                onClick = {
+                    when (destination) {
+                        Destination.Notes -> createAndOpenNote()
+                        Destination.Today -> captureSheetKind = CaptureKind.Task
+                        Destination.Tasks -> captureSheetKind = CaptureKind.Task
+                        Destination.Habits -> captureSheetKind = CaptureKind.Habit
+                        else -> Unit
+                    }
+                },
+                containerColor = palette.ink,
+                contentColor = palette.card,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = if (destination == Destination.Notes) "New note" else "New",
+                )
+            }
         }
     }
 
@@ -183,27 +209,35 @@ fun OtteroApp(
     }
 
     if (useRail) {
-        BackHandler(enabled = tab != TopDestination.Today) {
-            tab = TopDestination.Today
+        BackHandler(enabled = destination != Destination.Today) {
+            destination = Destination.Today
         }
         Row(modifier = Modifier.fillMaxSize()) {
             NavigationRail(
                 containerColor = palette.recessed,
                 header = {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                        contentDescription = "Ottero",
+                    Box(
                         modifier = Modifier
                             .padding(top = 12.dp, bottom = 8.dp)
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp)),
-                    )
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(9.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                            contentDescription = "Ottero",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(scaleX = 1.48f, scaleY = 1.48f),
+                        )
+                    }
                 },
             ) {
-                TopDestination.entries.forEach { dest ->
+                Destination.entries.forEach { dest ->
                     NavigationRailItem(
-                        selected = tab == dest,
-                        onClick = { tab = dest },
+                        selected = destination == dest,
+                        onClick = { destination = dest },
                         icon = { Icon(dest.icon, contentDescription = dest.label) },
                         label = { Text(dest.label) },
                         colors = NavigationRailItemDefaults.colors(
@@ -232,7 +266,7 @@ fun OtteroApp(
                 containerColor = palette.canvas,
                 topBar = {
                     OtteroTopChrome(
-                        title = tab.label,
+                        title = destination.label,
                         showDrawerButton = false,
                         onOpenDrawer = {},
                     )
@@ -247,11 +281,11 @@ fun OtteroApp(
                     contentAlignment = Alignment.TopCenter,
                 ) {
                     Box(modifier = Modifier.widthIn(max = 720.dp).fillMaxSize()) {
-                        TabContent(
-                            tab = tab,
+                        DestinationContent(
+                            destination = destination,
                             engine = engine,
                             contentPadding = innerPadding,
-                            onSelectTab = { tab = it },
+                            onSelectDestination = { destination = it },
                             onOpenNote = { id ->
                                 activeNoteIsNew = false
                                 activeNoteId = id
@@ -266,11 +300,11 @@ fun OtteroApp(
     } else {
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
-        BackHandler(enabled = drawerState.isOpen || tab != TopDestination.Today) {
+        BackHandler(enabled = drawerState.isOpen || destination != Destination.Today) {
             if (drawerState.isOpen) {
                 scope.launch { drawerState.close() }
             } else {
-                tab = TopDestination.Today
+                destination = Destination.Today
             }
         }
 
@@ -335,24 +369,29 @@ fun OtteroApp(
                         HorizontalDivider(color = palette.border)
                         Spacer(Modifier.height(12.dp))
 
-                        TopDestination.entries.forEach { dest ->
-                            NavigationDrawerItem(
-                                label = { Text(dest.label) },
-                                icon = { Icon(dest.icon, contentDescription = null) },
-                                selected = tab == dest,
+                        BottomDestinations.forEach { dest ->
+                            DrawerRow(
+                                dest = dest,
+                                selected = destination == dest,
                                 onClick = {
-                                    tab = dest
+                                    destination = dest
                                     scope.launch { drawerState.close() }
                                 },
-                                colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = palette.card,
-                                    selectedIconColor = palette.ink,
-                                    selectedTextColor = palette.ink,
-                                    unselectedContainerColor = palette.recessed,
-                                    unselectedIconColor = palette.muted,
-                                    unselectedTextColor = palette.muted,
-                                ),
-                                shape = RoundedCornerShape(10.dp),
+                            )
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(color = palette.border)
+                        Spacer(Modifier.height(8.dp))
+
+                        DrawerSecondaryDestinations.forEach { dest ->
+                            DrawerRow(
+                                dest = dest,
+                                selected = destination == dest,
+                                onClick = {
+                                    destination = dest
+                                    scope.launch { drawerState.close() }
+                                },
                             )
                         }
                     }
@@ -363,7 +402,7 @@ fun OtteroApp(
                 containerColor = palette.canvas,
                 topBar = {
                     OtteroTopChrome(
-                        title = tab.label,
+                        title = destination.label,
                         showDrawerButton = true,
                         onOpenDrawer = { scope.launch { drawerState.open() } },
                     )
@@ -372,10 +411,10 @@ fun OtteroApp(
                 floatingActionButton = fab,
                 bottomBar = {
                     NavigationBar(containerColor = palette.recessed) {
-                        TopDestination.entries.forEach { dest ->
+                        BottomDestinations.forEach { dest ->
                             NavigationBarItem(
-                                selected = tab == dest,
-                                onClick = { tab = dest },
+                                selected = destination == dest,
+                                onClick = { destination = dest },
                                 icon = { Icon(dest.icon, contentDescription = dest.label) },
                                 label = { Text(dest.label) },
                                 colors = NavigationBarItemDefaults.colors(
@@ -395,11 +434,11 @@ fun OtteroApp(
                         .fillMaxSize()
                         .consumeWindowInsets(innerPadding),
                 ) {
-                    TabContent(
-                        tab = tab,
+                    DestinationContent(
+                        destination = destination,
                         engine = engine,
                         contentPadding = innerPadding,
-                        onSelectTab = { tab = it },
+                        onSelectDestination = { destination = it },
                         onOpenNote = { id ->
                             activeNoteIsNew = false
                             activeNoteId = id
@@ -414,40 +453,78 @@ fun OtteroApp(
 }
 
 @Composable
-private fun TabContent(
-    tab: TopDestination,
+private fun DrawerRow(
+    dest: Destination,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalOtteroPalette.current
+    NavigationDrawerItem(
+        label = { Text(dest.label) },
+        icon = { Icon(dest.icon, contentDescription = null) },
+        selected = selected,
+        onClick = onClick,
+        colors = NavigationDrawerItemDefaults.colors(
+            selectedContainerColor = palette.card,
+            selectedIconColor = palette.ink,
+            selectedTextColor = palette.ink,
+            unselectedContainerColor = palette.recessed,
+            unselectedIconColor = palette.muted,
+            unselectedTextColor = palette.muted,
+        ),
+        shape = RoundedCornerShape(10.dp),
+    )
+}
+
+@Composable
+private fun DestinationContent(
+    destination: Destination,
     engine: OtteroEngine,
     contentPadding: PaddingValues,
-    onSelectTab: (TopDestination) -> Unit,
+    onSelectDestination: (Destination) -> Unit,
     onOpenNote: (String) -> Unit,
     onCreateNote: () -> Unit,
     onOpenQuickCapture: (CaptureKind) -> Unit,
 ) {
-    when (tab) {
-        TopDestination.Today -> TodayScreen(
+    when (destination) {
+        Destination.Today -> TodayScreen(
             engine = engine,
             contentPadding = contentPadding,
-            onOpenTasks = { onSelectTab(TopDestination.Tasks) },
-            onOpenNotes = { onSelectTab(TopDestination.Notes) },
-            onOpenHabits = { onSelectTab(TopDestination.Habits) },
+            onOpenTasks = { onSelectDestination(Destination.Tasks) },
+            onOpenNotes = { onSelectDestination(Destination.Notes) },
+            onOpenHabits = { onSelectDestination(Destination.Habits) },
             onOpenNote = onOpenNote,
             onCreateNote = onCreateNote,
             onAddTask = { onOpenQuickCapture(CaptureKind.Task) },
         )
 
-        TopDestination.Notes -> NotesListScreen(
+        Destination.Notes -> NotesListScreen(
             engine = engine,
             contentPadding = contentPadding,
             onOpenNote = onOpenNote,
             onCreateNote = onCreateNote,
         )
 
-        TopDestination.Tasks -> TasksScreen(
+        Destination.Tasks -> TasksScreen(
             engine = engine,
             contentPadding = contentPadding,
         )
 
-        TopDestination.Habits -> HabitsScreen(
+        Destination.Habits -> HabitsScreen(
+            engine = engine,
+            contentPadding = contentPadding,
+        )
+
+        Destination.Calendar -> CalendarScreen(
+            engine = engine,
+            contentPadding = contentPadding,
+        )
+
+        Destination.Focus -> FocusScreen(
+            contentPadding = contentPadding,
+        )
+
+        Destination.Trash -> TrashScreen(
             engine = engine,
             contentPadding = contentPadding,
         )

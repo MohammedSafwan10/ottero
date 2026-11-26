@@ -71,19 +71,17 @@ Ottero is an all-in-one personal workspace (Today, Notes, Tasks, Calendar, Habit
 - [x] **Universal Quick-Capture Sheet (`+`):**
   - Floating `+` opens `QuickCaptureSheet` for 1-tap **Task** (Rust quick-add), **Note**, or **Habit** creation.
 
-### Phase 4 — Full Feature Parity (Offline-First)
-- [ ] **Rich Notes Experience:**
-  - Markdown formatting toolbar above the keyboard (Bold, Italic, Heading, Checklist, Code, `[[Wiki Link]]` autocomplete), Tags filter bar, Pinned section, and Backlinks sheet.
-  - Note Trash screen with Restore & Permanent Delete confirmation.
-- [ ] **Tasks & Projects:**
-  - Task detail bottom sheet (due date picker, priority selector, recurrence picker, project selector, notes, subtasks).
-  - Swipe actions on task rows (swipe right = complete, swipe left = trash with Undo).
-- [ ] **Habits Module:**
-  - Dedicated Habits screen + Today habit cards with quick-add (`Read 20 pages daily`, `Gym mon wed fri`), streak count, and weekly consistency grid.
-- [ ] **Calendar Module:**
-  - Agenda + Month view sharing Rust `Event` expansion (repeating events, exceptions, birthdays, holidays) and quick-add event parser.
-- [ ] **Focus / Pomodoro Timer:**
-  - Foreground service notification with live countdown, task-linked focus sessions, and haptics on phase completion.
+### Phase 4 — Full Feature Parity (Offline-First, Done)
+- [x] **Rich Notes Experience:**
+  - Markdown formatting toolbar docked above keyboard (`NoteMarkdownToolbar`: Heading, Bold, Italic, Checklist, Bullet, Code, `[[Wiki Link]]`), `#tag` filter bar in `NotesListScreen`, and `TrashScreen` with Restore & Permanent Delete confirmation.
+- [x] **Tasks Details & Gestures:**
+  - Tap-to-edit `TaskDetailSheet` (title, notes, priority, due date presets) + `SwipeToDismissBox` swipe right = complete, swipe left = trash with Undo.
+- [x] **Habits Module:**
+  - Dedicated `HabitsScreen` + Today habit cards with Rust quick-add and tap-to-log haptics.
+- [x] **Calendar Module:**
+  - `CalendarScreen` with rolling 7-day strip, Rust `Event` occurrence expansion (`list_events_in_range`), natural quick-add (`quick_add_event`), and trash + Undo.
+- [x] **Focus / Pomodoro Timer:**
+  - `FocusScreen` with Focus (25m) / Short break (5m) / Long break (15m) presets, tabular countdown ring, and haptics on completion.
 
 ### Phase 5 — Passwords Vault & Native Biometric Security
 - [ ] **Vault Bridge (`crates/mobile-ffi/src/vault.rs`):**

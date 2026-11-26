@@ -14,11 +14,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import uniffi.ottero_mobile_ffi.AppInfo
+import uniffi.ottero_mobile_ffi.CalendarEventItem
 import uniffi.ottero_mobile_ffi.HabitItem
 import uniffi.ottero_mobile_ffi.MobileTaskFilter
 import uniffi.ottero_mobile_ffi.NoteDetail
 import uniffi.ottero_mobile_ffi.NoteListItem
 import uniffi.ottero_mobile_ffi.OtteroMobile
+import uniffi.ottero_mobile_ffi.TagCount
 import uniffi.ottero_mobile_ffi.TaskItem
 import uniffi.ottero_mobile_ffi.TodaySnapshot
 import java.io.File
@@ -50,6 +52,18 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         mobile.listNotes(query)
     }
 
+    suspend fun listTrashedNotes(): List<NoteListItem> = withContext(dbDispatcher) {
+        mobile.listTrashedNotes()
+    }
+
+    suspend fun listTags(): List<TagCount> = withContext(dbDispatcher) {
+        mobile.listTags()
+    }
+
+    suspend fun listNotesByTag(tag: String): List<NoteListItem> = withContext(dbDispatcher) {
+        mobile.listNotesByTag(tag)
+    }
+
     suspend fun getNote(id: String): NoteDetail = withContext(dbDispatcher) {
         mobile.getNote(id)
     }
@@ -63,10 +77,6 @@ class OtteroEngine(private val mobile: OtteroMobile) {
             mobile.updateNote(id, title, body).also { _changes.tryEmit(Unit) }
         }
 
-    /**
-     * Fire-and-forget flush on the engine's application scope so edits are never
-     * lost if a composable leaves composition (e.g. ON_STOP / Back).
-     */
     fun flushNoteAsync(id: String, title: String, body: String) {
         appScope.launch {
             runCatching {
@@ -90,6 +100,11 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         mobile.restoreNote(id).also { _changes.tryEmit(Unit) }
     }
 
+    suspend fun deleteNotePermanently(id: String) = withContext(dbDispatcher) {
+        mobile.deleteNotePermanently(id)
+        _changes.tryEmit(Unit)
+    }
+
     suspend fun listTasks(filter: MobileTaskFilter): List<TaskItem> = withContext(dbDispatcher) {
         mobile.listTasks(filter)
     }
@@ -98,6 +113,18 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         withContext(dbDispatcher) {
             mobile.quickAddTask(input, defaultToday).also { _changes.tryEmit(Unit) }
         }
+
+    suspend fun updateTask(
+        id: String,
+        title: String,
+        notes: String,
+        priority: Int,
+        dueDate: String?,
+    ): TaskItem = withContext(dbDispatcher) {
+        mobile.updateTask(id, title, notes, priority.toUByte(), dueDate).also {
+            _changes.tryEmit(Unit)
+        }
+    }
 
     suspend fun toggleTaskDone(id: String): TaskItem = withContext(dbDispatcher) {
         mobile.toggleTaskDone(id).also { _changes.tryEmit(Unit) }
@@ -124,15 +151,31 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         mobile.tapHabitToday(id).also { _changes.tryEmit(Unit) }
     }
 
+    suspend fun listEventsInRange(startIso: String, endIso: String): List<CalendarEventItem> =
+        withContext(dbDispatcher) {
+            mobile.listEventsInRange(startIso, endIso)
+        }
+
+    suspend fun quickAddEvent(input: String, defaultDateIso: String?): CalendarEventItem =
+        withContext(dbDispatcher) {
+            mobile.quickAddEvent(input, defaultDateIso).also { _changes.tryEmit(Unit) }
+        }
+
+    suspend fun trashEvent(id: String) = withContext(dbDispatcher) {
+        mobile.trashEvent(id)
+        _changes.tryEmit(Unit)
+    }
+
+    suspend fun restoreEvent(id: String) = withContext(dbDispatcher) {
+        mobile.restoreEvent(id)
+        _changes.tryEmit(Unit)
+    }
+
     companion object {
         @Volatile
         private var instance: OtteroEngine? = null
         private val initMutex = Mutex()
 
-        /**
-         * Opens the SQLite store asynchronously off the main thread so cold start
-         * never triggers disk I/O or migrations on the UI thread.
-         */
         suspend fun open(context: Context): Result<OtteroEngine> {
             instance?.let { return Result.success(it) }
             val appContext = context.applicationContext

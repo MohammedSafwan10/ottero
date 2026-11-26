@@ -64,3 +64,20 @@ pub struct TodaySnapshot {
     pub completed_today_count: u32,
     pub overdue_count: u32,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TagCount {
+    pub name: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CalendarEventItem {
+    pub id: String,
+    pub title: String,
+    pub notes: String,
+    pub date_iso: String,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    pub all_day: bool,
+}

@@ -1,6 +1,7 @@
 //! UniFFI bridge exposing Ottero's shared Rust core and SQLite storage
 //! to native Android (Kotlin/Compose) and iOS (SwiftUI) apps.
 
+mod calendar;
 mod dto;
 mod error;
 mod habits;
@@ -14,7 +15,8 @@ use std::sync::Mutex;
 use ottero_storage::Store;
 
 pub use dto::{
-    AppInfo, HabitItem, MobileTaskFilter, NoteDetail, NoteListItem, TaskItem, TodaySnapshot,
+    AppInfo, CalendarEventItem, HabitItem, MobileTaskFilter, NoteDetail, NoteListItem, TagCount,
+    TaskItem, TodaySnapshot,
 };
 pub use error::MobileError;
 
@@ -99,6 +101,26 @@ impl OtteroMobile {
         notes::restore_note(&mut store, &id)
     }
 
+    pub fn list_trashed_notes(&self) -> Result<Vec<NoteListItem>, MobileError> {
+        let store = self.lock()?;
+        notes::list_trashed_notes(&store)
+    }
+
+    pub fn delete_note_permanently(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        notes::delete_note_permanently(&mut store, &id)
+    }
+
+    pub fn list_tags(&self) -> Result<Vec<TagCount>, MobileError> {
+        let store = self.lock()?;
+        notes::list_tags(&store)
+    }
+
+    pub fn list_notes_by_tag(&self, tag: String) -> Result<Vec<NoteListItem>, MobileError> {
+        let store = self.lock()?;
+        notes::list_notes_by_tag(&store, &tag)
+    }
+
     pub fn list_tasks(&self, filter: MobileTaskFilter) -> Result<Vec<TaskItem>, MobileError> {
         let store = self.lock()?;
         tasks::list_tasks(&store, filter)
@@ -111,6 +133,18 @@ impl OtteroMobile {
     ) -> Result<TaskItem, MobileError> {
         let mut store = self.lock()?;
         tasks::quick_add_task(&mut store, &input, default_today)
+    }
+
+    pub fn update_task(
+        &self,
+        id: String,
+        title: String,
+        notes: String,
+        priority: u8,
+        due_date: Option<String>,
+    ) -> Result<TaskItem, MobileError> {
+        let mut store = self.lock()?;
+        tasks::update_task(&mut store, &id, &title, &notes, priority, due_date)
     }
 
     pub fn toggle_task_done(&self, id: String) -> Result<TaskItem, MobileError> {
@@ -141,6 +175,34 @@ impl OtteroMobile {
     pub fn tap_habit_today(&self, id: String) -> Result<HabitItem, MobileError> {
         let mut store = self.lock()?;
         habits::tap_habit_today(&mut store, &id)
+    }
+
+    pub fn list_events_in_range(
+        &self,
+        start_iso: String,
+        end_iso: String,
+    ) -> Result<Vec<CalendarEventItem>, MobileError> {
+        let store = self.lock()?;
+        calendar::list_events_in_range(&store, &start_iso, &end_iso)
+    }
+
+    pub fn quick_add_event(
+        &self,
+        input: String,
+        default_date_iso: Option<String>,
+    ) -> Result<CalendarEventItem, MobileError> {
+        let mut store = self.lock()?;
+        calendar::quick_add_event(&mut store, &input, default_date_iso)
+    }
+
+    pub fn trash_event(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        calendar::trash_event(&mut store, &id)
+    }
+
+    pub fn restore_event(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        calendar::restore_event(&mut store, &id)
     }
 }
 
@@ -203,5 +265,58 @@ mod tests {
         app.trash_task(task.id.clone()).expect("trash task");
         let restored_task = app.restore_task(task.id.clone()).expect("restore task");
         assert_eq!(restored_task.id, task.id);
+
+        // Update task details
+        let edited_task = app
+            .update_task(
+                task.id.clone(),
+                "Ship Android Phase 4".into(),
+                "Calendar + Focus + Markdown".into(),
+                2,
+                Some(snap.date_iso.clone()),
+            )
+            .expect("update task");
+        assert_eq!(edited_task.title, "Ship Android Phase 4");
+        assert_eq!(edited_task.priority, 2);
+
+        // Tags + permanent delete
+        let tagged = app
+            .create_note("Tagged".into(), "Working on #android".into())
+            .expect("tagged note");
+        assert!(!app.list_tags().expect("tags").is_empty());
+        assert_eq!(
+            app.list_notes_by_tag("android".into())
+                .expect("by tag")
+                .len(),
+            1
+        );
+        app.trash_note(tagged.id.clone()).expect("trash tagged");
+        assert_eq!(app.list_trashed_notes().expect("trashed").len(), 1);
+        app.delete_note_permanently(tagged.id)
+            .expect("permanent delete");
+        assert!(app.list_trashed_notes().expect("trashed").is_empty());
+
+        // Calendar events + trash/restore
+        let ev = app
+            .quick_add_event("Standup 10am".into(), Some(snap.date_iso.clone()))
+            .expect("event");
+        assert_eq!(ev.title, "Standup");
+        let events = app
+            .list_events_in_range(snap.date_iso.clone(), snap.date_iso.clone())
+            .expect("list events");
+        assert_eq!(events.len(), 1);
+        app.trash_event(ev.id.clone()).expect("trash event");
+        assert!(
+            app.list_events_in_range(snap.date_iso.clone(), snap.date_iso.clone())
+                .expect("list events")
+                .is_empty()
+        );
+        app.restore_event(ev.id).expect("restore event");
+        assert_eq!(
+            app.list_events_in_range(snap.date_iso.clone(), snap.date_iso)
+                .expect("list events")
+                .len(),
+            1
+        );
     }
 }

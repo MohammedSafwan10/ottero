@@ -3,7 +3,7 @@
 use ottero_core::{Note, NoteId, clock};
 use ottero_storage::{NoteSummary, Store};
 
-use crate::dto::{NoteDetail, NoteListItem};
+use crate::dto::{NoteDetail, NoteListItem, TagCount};
 use crate::error::MobileError;
 
 pub(crate) fn summary_to_dto(s: NoteSummary) -> NoteListItem {
@@ -113,4 +113,40 @@ pub(crate) fn restore_note(store: &mut Store, id: &str) -> Result<NoteDetail, Mo
     note.restore(clock::now());
     store.save_note(&note)?;
     Ok(note_to_detail(&note))
+}
+
+pub(crate) fn list_trashed_notes(store: &Store) -> Result<Vec<NoteListItem>, MobileError> {
+    let rows = store.list_notes(true)?;
+    Ok(rows
+        .into_iter()
+        .map(|s| NoteListItem {
+            trashed: true,
+            ..summary_to_dto(s)
+        })
+        .collect())
+}
+
+pub(crate) fn delete_note_permanently(store: &mut Store, id: &str) -> Result<(), MobileError> {
+    let note_id = parse_note_id(id)?;
+    store.delete_note_permanently(note_id)?;
+    Ok(())
+}
+
+pub(crate) fn list_tags(store: &Store) -> Result<Vec<TagCount>, MobileError> {
+    let tags = store.note_tags()?;
+    Ok(tags
+        .into_iter()
+        .map(|(name, count)| TagCount {
+            name,
+            count: u32::try_from(count).unwrap_or(u32::MAX),
+        })
+        .collect())
+}
+
+pub(crate) fn list_notes_by_tag(
+    store: &Store,
+    tag: &str,
+) -> Result<Vec<NoteListItem>, MobileError> {
+    let rows = store.notes_with_tag(tag)?;
+    Ok(rows.into_iter().map(summary_to_dto).collect())
 }
