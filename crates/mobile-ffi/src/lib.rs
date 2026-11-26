@@ -359,6 +359,10 @@ impl OtteroMobile {
     pub fn sync_now(&self) -> Result<MobileSyncReport, MobileError> {
         sync::sync_now(&self.store, &self.vault_key, &self.account)
     }
+
+    pub fn vault_unlock_with_account(&self) -> Result<bool, MobileError> {
+        sync::unlock_vault_with_account(&self.store, &self.vault_key, &self.account)
+    }
 }
 
 impl OtteroMobile {
@@ -530,5 +534,13 @@ mod tests {
         assert!(app.vault_list_items(None).expect("list").is_empty());
         app.vault_restore_item(saved.id).expect("restore");
         assert_eq!(app.vault_list_items(None).expect("list").len(), 1);
+    }
+
+    #[test]
+    fn sync_account_id_matches_desktop_derivation() {
+        assert_eq!(
+            sync::derive_sync_account_id("Alice.Test+1@Example.COM "),
+            "alice.test_1_example.com"
+        );
     }
 }

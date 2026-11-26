@@ -131,9 +131,10 @@ fun OtteroApp(
         engine.lockVaultNow()
     }
 
-    // Quietly sync when returning to the foreground if signed in.
+    // Re-unlock account-linked vault offline and quietly sync when returning to the foreground.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         scope.launch {
+            runSuspendCatching { engine.vaultUnlockWithAccount() }
             val status = runSuspendCatching { engine.accountStatus() }.getOrNull()
             if (status?.signedIn == true) {
                 runSuspendCatching { engine.syncNow() }

@@ -148,10 +148,18 @@ fun SettingsScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = palette.ink,
                         )
-                        if (status.pendingOutboxCount > 0u) {
+                        val syncMeta = buildList {
+                            status.lastSyncedAtMs?.let { ms ->
+                                add("Last synced ${formatRelativeSyncTime(ms)}")
+                            }
+                            if (status.pendingOutboxCount > 0u) {
+                                add("${status.pendingOutboxCount} pending")
+                            }
+                        }.joinToString(" · ")
+                        if (syncMeta.isNotEmpty()) {
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                text = "${status.pendingOutboxCount} pending changes",
+                                text = syncMeta,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = palette.muted,
                             )
@@ -483,5 +491,15 @@ private fun AccountSignInCard(
                 }
             }
         }
+    }
+}
+
+private fun formatRelativeSyncTime(epochMs: Long): String {
+    val diffSec = ((System.currentTimeMillis() - epochMs) / 1000L).coerceAtLeast(0L)
+    return when {
+        diffSec < 60L -> "just now"
+        diffSec < 3600L -> "${diffSec / 60L}m ago"
+        diffSec < 86400L -> "${diffSec / 3600L}h ago"
+        else -> "${diffSec / 86400L}d ago"
     }
 }

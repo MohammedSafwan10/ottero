@@ -155,6 +155,21 @@ fn get_authed(agent: &ureq::Agent, path: &str, bearer: &str) -> Result<ApiReply,
     )
 }
 
+/// Derives the separator-safe sync `account_id` used in AEAD AAD, matching
+/// Desktop's `apps/desktop/src/library/sync.rs` derivation byte-for-byte.
+pub(crate) fn derive_sync_account_id(email: &str) -> String {
+    normalize_email(email)
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn fetch_me_and_unwrap_key(
     agent: &ureq::Agent,
     bearer: &str,
@@ -162,7 +177,6 @@ fn fetch_me_and_unwrap_key(
 ) -> Result<(String, String, SecretKey), MobileError> {
     #[derive(Deserialize)]
     struct MeBody {
-        id: String,
         email: String,
     }
     #[derive(Deserialize)]
@@ -197,7 +211,9 @@ fn fetch_me_and_unwrap_key(
         }
     })?;
 
-    Ok((me.id, normalize_email(&me.email), account_key))
+    let canonical_email = normalize_email(&me.email);
+    let sync_account_id = derive_sync_account_id(&canonical_email);
+    Ok((sync_account_id, canonical_email, account_key))
 }
 
 fn ensure_device_id(store: &Store, account_id: &str) -> Result<String, MobileError> {
@@ -220,15 +236,17 @@ fn ensure_device_id(store: &Store, account_id: &str) -> Result<String, MobileErr
 }
 
 /// Automatically unlocks the local Passwords Vault using `account_key` if the
-/// vault is linked to this account, or initializes an account-linked vault when
-/// none exists yet.
+/// vault is linked to this account. When `create_if_missing` is true (after an
+/// initial sync confirms no remote vault exists), initializes a new
+/// account-linked vault so Passwords works without a separate master password.
 pub(crate) fn try_unlock_vault_with_account(
     store: &mut Store,
     vault_state: &mut VaultKeyState,
     email: &str,
     account_key: &SecretKey,
     device_id: &str,
-) -> Result<(), MobileError> {
+    create_if_missing: bool,
+) -> Result<bool, MobileError> {
     let normalized = normalize_email(email);
     if let Some(meta) = store.vault_meta()? {
         if let Some(account_wrap) = &meta.account
@@ -238,12 +256,17 @@ pub(crate) fn try_unlock_vault_with_account(
         {
             vault_state.key = Some(vault_key);
             vault_state.epoch = vault_state.epoch.wrapping_add(1);
+            return Ok(true);
         }
-        return Ok(());
+        return Ok(false);
     }
 
-    // No local vault header yet — create an account-linked vault so Passwords
-    // works immediately with zero extra password prompt.
+    if !create_if_missing {
+        return Ok(false);
+    }
+
+    // No local or remote vault header yet — create an account-linked vault so
+    // Passwords works immediately with zero extra password prompt.
     let vault_key = SecretKey::generate().map_err(|_| MobileError::Storage {
         reason: "Could not generate vault key".into(),
     })?;
@@ -280,7 +303,37 @@ pub(crate) fn try_unlock_vault_with_account(
     }
     vault_state.key = Some(vault_key);
     vault_state.epoch = vault_state.epoch.wrapping_add(1);
-    Ok(())
+    Ok(true)
+}
+
+/// Offline-capable re-unlock of an account-linked vault using the in-memory
+/// `account_key` (e.g. when returning to the foreground without network).
+pub(crate) fn unlock_vault_with_account(
+    store_mutex: &Mutex<Store>,
+    vault_mutex: &Mutex<VaultKeyState>,
+    account_mutex: &Mutex<AccountSessionState>,
+) -> Result<bool, MobileError> {
+    let (email, account_key) = {
+        let acct = account_mutex
+            .lock()
+            .map_err(|_| MobileError::LockPoisoned)?;
+        let Some(active) = acct.active.as_ref() else {
+            return Ok(false);
+        };
+        let mut key_copy = *active.account_key.expose();
+        (active.email.clone(), SecretKey::from_bytes(&mut key_copy))
+    };
+    let mut store = store_mutex.lock().map_err(|_| MobileError::LockPoisoned)?;
+    let device_id = store.sync_state()?.device_id;
+    let mut vault_state = vault_mutex.lock().map_err(|_| MobileError::LockPoisoned)?;
+    try_unlock_vault_with_account(
+        &mut store,
+        &mut vault_state,
+        &email,
+        &account_key,
+        &device_id,
+        false,
+    )
 }
 
 fn finish_session_install(
@@ -309,6 +362,7 @@ fn finish_session_install(
         &email,
         &account_key,
         &device_id,
+        false,
     );
     drop(vault_state);
     drop(store);
@@ -525,12 +579,16 @@ pub(crate) fn restore_session(
             })?;
     let account_key = SecretKey::from_bytes(&mut key_bytes);
 
+    let canonical_email = normalize_email(&email);
+    let derived_account_id = derive_sync_account_id(&canonical_email);
+    let _ = account_id;
+
     let _ = finish_session_install(
         store_mutex,
         vault_mutex,
         account_mutex,
-        account_id,
-        normalize_email(&email),
+        derived_account_id,
+        canonical_email,
         Zeroizing::new(bearer_token),
         account_key,
     )?;
@@ -629,6 +687,7 @@ pub(crate) fn sync_now(
     })?;
 
     // If remote sync delivered or updated `vault-meta`, unlock Passwords automatically.
+    // If no vault exists on any device yet, initialize an account-linked vault now.
     let mut vault_state = vault_mutex.lock().map_err(|_| MobileError::LockPoisoned)?;
     let _ = try_unlock_vault_with_account(
         &mut store,
@@ -636,6 +695,7 @@ pub(crate) fn sync_now(
         &email,
         &account_key,
         &device_id,
+        true,
     );
 
     Ok(MobileSyncReport {

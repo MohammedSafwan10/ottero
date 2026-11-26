@@ -2,9 +2,12 @@
 
 use ottero_core::{Habit, HabitId, clock, parse_habit};
 use ottero_storage::Store;
+use ottero_sync_client::SyncHabitPayload;
+use ottero_sync_protocol::Collection;
 
 use crate::dto::HabitItem;
 use crate::error::MobileError;
+use crate::sync::enqueue_mutation;
 
 fn parse_habit_id(id: &str) -> Result<HabitId, MobileError> {
     id.parse::<HabitId>()
@@ -48,6 +51,14 @@ pub(crate) fn quick_add_habit(store: &mut Store, input: &str) -> Result<HabitIte
         habit.set_target(draft.target, now)?;
     }
     store.save_habit(&habit)?;
+    enqueue_mutation(
+        store,
+        Collection::Habits,
+        &habit.id().to_string(),
+        &["record"],
+        false,
+        &SyncHabitPayload::from(&habit),
+    );
     Ok(HabitItem {
         id: habit.id().to_string(),
         name: habit.name().to_owned(),

@@ -5,7 +5,9 @@ import androidx.compose.runtime.Stable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -44,9 +46,32 @@ class OtteroEngine(private val mobile: OtteroMobile) {
 
     private val dbDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val appScope = CoroutineScope(SupervisorJob() + dbDispatcher)
+    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val syncMutex = Mutex()
+    @Volatile
+    private var autoSyncJob: Job? = null
 
     private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 32)
     val changes: SharedFlow<Unit> = _changes.asSharedFlow()
+
+    /** Emits a local change signal and schedules a 500 ms debounced cloud sync if signed in. */
+    private fun notifyMutation() {
+        _changes.tryEmit(Unit)
+        scheduleAutoSync()
+    }
+
+    private fun scheduleAutoSync() {
+        autoSyncJob?.cancel()
+        autoSyncJob = syncScope.launch {
+            delay(500L)
+            val signedIn = runCatching {
+                withContext(dbDispatcher) { mobile.accountStatus().signedIn }
+            }.getOrDefault(false)
+            if (signedIn) {
+                runCatching { syncNow() }
+            }
+        }
+    }
 
     suspend fun appInfo(): AppInfo = withContext(dbDispatcher) {
         mobile.appInfo()
@@ -77,40 +102,40 @@ class OtteroEngine(private val mobile: OtteroMobile) {
     }
 
     suspend fun createNote(title: String, body: String): NoteDetail = withContext(dbDispatcher) {
-        mobile.createNote(title, body).also { _changes.tryEmit(Unit) }
+        mobile.createNote(title, body).also { notifyMutation() }
     }
 
     suspend fun updateNote(id: String, title: String, body: String): NoteDetail =
         withContext(dbDispatcher) {
-            mobile.updateNote(id, title, body).also { _changes.tryEmit(Unit) }
+            mobile.updateNote(id, title, body).also { notifyMutation() }
         }
 
     fun flushNoteAsync(id: String, title: String, body: String) {
         appScope.launch {
             runCatching {
                 mobile.updateNote(id, title, body)
-                _changes.tryEmit(Unit)
+                notifyMutation()
             }
         }
     }
 
     suspend fun setNotePinned(id: String, pinned: Boolean): NoteDetail =
         withContext(dbDispatcher) {
-            mobile.setNotePinned(id, pinned).also { _changes.tryEmit(Unit) }
+            mobile.setNotePinned(id, pinned).also { notifyMutation() }
         }
 
     suspend fun trashNote(id: String) = withContext(dbDispatcher) {
         mobile.trashNote(id)
-        _changes.tryEmit(Unit)
+        notifyMutation()
     }
 
     suspend fun restoreNote(id: String): NoteDetail = withContext(dbDispatcher) {
-        mobile.restoreNote(id).also { _changes.tryEmit(Unit) }
+        mobile.restoreNote(id).also { notifyMutation() }
     }
 
     suspend fun deleteNotePermanently(id: String) = withContext(dbDispatcher) {
         mobile.deleteNotePermanently(id)
-        _changes.tryEmit(Unit)
+        notifyMutation()
     }
 
     suspend fun listTasks(filter: MobileTaskFilter): List<TaskItem> = withContext(dbDispatcher) {
@@ -119,7 +144,7 @@ class OtteroEngine(private val mobile: OtteroMobile) {
 
     suspend fun quickAddTask(input: String, defaultToday: Boolean): TaskItem =
         withContext(dbDispatcher) {
-            mobile.quickAddTask(input, defaultToday).also { _changes.tryEmit(Unit) }
+            mobile.quickAddTask(input, defaultToday).also { notifyMutation() }
         }
 
     suspend fun updateTask(
@@ -130,21 +155,21 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         dueDate: String?,
     ): TaskItem = withContext(dbDispatcher) {
         mobile.updateTask(id, title, notes, priority.toUByte(), dueDate).also {
-            _changes.tryEmit(Unit)
+            notifyMutation()
         }
     }
 
     suspend fun toggleTaskDone(id: String): TaskItem = withContext(dbDispatcher) {
-        mobile.toggleTaskDone(id).also { _changes.tryEmit(Unit) }
+        mobile.toggleTaskDone(id).also { notifyMutation() }
     }
 
     suspend fun trashTask(id: String) = withContext(dbDispatcher) {
         mobile.trashTask(id)
-        _changes.tryEmit(Unit)
+        notifyMutation()
     }
 
     suspend fun restoreTask(id: String): TaskItem = withContext(dbDispatcher) {
-        mobile.restoreTask(id).also { _changes.tryEmit(Unit) }
+        mobile.restoreTask(id).also { notifyMutation() }
     }
 
     suspend fun listHabits(): List<HabitItem> = withContext(dbDispatcher) {
@@ -152,11 +177,11 @@ class OtteroEngine(private val mobile: OtteroMobile) {
     }
 
     suspend fun quickAddHabit(input: String): HabitItem = withContext(dbDispatcher) {
-        mobile.quickAddHabit(input).also { _changes.tryEmit(Unit) }
+        mobile.quickAddHabit(input).also { notifyMutation() }
     }
 
     suspend fun tapHabitToday(id: String): HabitItem = withContext(dbDispatcher) {
-        mobile.tapHabitToday(id).also { _changes.tryEmit(Unit) }
+        mobile.tapHabitToday(id).also { notifyMutation() }
     }
 
     suspend fun listEventsInRange(startIso: String, endIso: String): List<CalendarEventItem> =
@@ -166,17 +191,17 @@ class OtteroEngine(private val mobile: OtteroMobile) {
 
     suspend fun quickAddEvent(input: String, defaultDateIso: String?): CalendarEventItem =
         withContext(dbDispatcher) {
-            mobile.quickAddEvent(input, defaultDateIso).also { _changes.tryEmit(Unit) }
+            mobile.quickAddEvent(input, defaultDateIso).also { notifyMutation() }
         }
 
     suspend fun trashEvent(id: String) = withContext(dbDispatcher) {
         mobile.trashEvent(id)
-        _changes.tryEmit(Unit)
+        notifyMutation()
     }
 
     suspend fun restoreEvent(id: String) = withContext(dbDispatcher) {
         mobile.restoreEvent(id)
-        _changes.tryEmit(Unit)
+        notifyMutation()
     }
 
     suspend fun vaultStatus(): MobileVaultStatus = withContext(dbDispatcher) {
@@ -225,18 +250,18 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         notes: String,
     ): VaultEntryDetail = withContext(dbDispatcher) {
         mobile.vaultSaveLogin(id, title, username, password, url, totpSecret, notes).also {
-            _changes.tryEmit(Unit)
+            notifyMutation()
         }
     }
 
     suspend fun vaultTrashItem(id: String) = withContext(dbDispatcher) {
         mobile.vaultTrashItem(id)
-        _changes.tryEmit(Unit)
+        notifyMutation()
     }
 
     suspend fun vaultRestoreItem(id: String) = withContext(dbDispatcher) {
         mobile.vaultRestoreItem(id)
-        _changes.tryEmit(Unit)
+        notifyMutation()
     }
 
     suspend fun vaultGeneratePassword(length: Int = 20): String = withContext(Dispatchers.Default) {
@@ -281,8 +306,16 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         _changes.tryEmit(Unit)
     }
 
+    suspend fun vaultUnlockWithAccount(): Boolean = withContext(dbDispatcher) {
+        mobile.vaultUnlockWithAccount().also { unlocked ->
+            if (unlocked) _changes.tryEmit(Unit)
+        }
+    }
+
     suspend fun syncNow(): MobileSyncReport = withContext(Dispatchers.IO) {
-        mobile.syncNow().also { _changes.tryEmit(Unit) }
+        syncMutex.withLock {
+            mobile.syncNow().also { _changes.tryEmit(Unit) }
+        }
     }
 
     companion object {
