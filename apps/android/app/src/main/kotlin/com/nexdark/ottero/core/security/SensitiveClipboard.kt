@@ -24,7 +24,7 @@ object SensitiveClipboard {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var clearJob: Job? = null
 
-    fun copySecret(context: Context, label: String, secret: String) {
+    fun copySecret(context: Context, label: String, secret: String, clearAfterSeconds: Int = 30) {
         val appContext = context.applicationContext
         val cm = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         val clip = ClipData.newPlainText(label, secret).apply {
@@ -39,7 +39,7 @@ object SensitiveClipboard {
 
         clearJob?.cancel()
         clearJob = scope.launch {
-            delay(30_000L)
+            delay(clearAfterSeconds.coerceIn(15, 60) * 1_000L)
             val currentDesc = cm.primaryClipDescription
             val stillOurs = currentDesc != null &&
                 currentDesc.label?.toString() == label &&

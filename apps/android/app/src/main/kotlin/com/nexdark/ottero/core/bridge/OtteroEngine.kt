@@ -415,6 +415,37 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         mobile.vaultTotpNow(secret)
     }
 
+    suspend fun vaultSaveCard(
+        id: String?,
+        title: String,
+        cardholder: String,
+        number: String,
+        expiry: String,
+        cvv: String,
+        notes: String,
+    ): VaultEntryDetail = withContext(dbDispatcher) {
+        mobile.vaultSaveCard(id, title, cardholder, number, expiry, cvv, notes).also {
+            notifyMutation()
+        }
+    }
+
+    suspend fun vaultSaveSecureNote(
+        id: String?,
+        title: String,
+        notes: String,
+    ): VaultEntryDetail = withContext(dbDispatcher) {
+        mobile.vaultSaveSecureNote(id, title, notes).also { notifyMutation() }
+    }
+
+    suspend fun vaultToggleFavorite(id: String): Boolean = withContext(dbDispatcher) {
+        mobile.vaultToggleFavorite(id).also { notifyMutation() }
+    }
+
+    suspend fun vaultAutofillMatches(hint: String): List<VaultEntryDetail> =
+        withContext(dbDispatcher) {
+            mobile.vaultAutofillMatches(hint)
+        }
+
     suspend fun accountStatus(): MobileAccountStatus = withContext(dbDispatcher) {
         mobile.accountStatus()
     }
@@ -477,6 +508,8 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         @Volatile
         private var instance: OtteroEngine? = null
         private val initMutex = Mutex()
+
+        fun currentOrNull(): OtteroEngine? = instance
 
         suspend fun open(context: Context): Result<OtteroEngine> {
             instance?.let { return Result.success(it) }

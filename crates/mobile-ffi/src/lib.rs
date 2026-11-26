@@ -367,6 +367,50 @@ impl OtteroMobile {
         vault::totp_now(&secret)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn vault_save_card(
+        &self,
+        id: Option<String>,
+        title: String,
+        cardholder: String,
+        number: String,
+        expiry: String,
+        cvv: String,
+        notes: String,
+    ) -> Result<VaultEntryDetail, MobileError> {
+        let mut store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::save_card(
+            &mut store, &key, id, title, cardholder, number, expiry, cvv, notes,
+        )
+    }
+
+    pub fn vault_save_secure_note(
+        &self,
+        id: Option<String>,
+        title: String,
+        notes: String,
+    ) -> Result<VaultEntryDetail, MobileError> {
+        let mut store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::save_secure_note(&mut store, &key, id, title, notes)
+    }
+
+    pub fn vault_toggle_favorite(&self, id: String) -> Result<bool, MobileError> {
+        let mut store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::toggle_favorite(&mut store, &key, &id)
+    }
+
+    pub fn vault_autofill_matches(
+        &self,
+        hint: String,
+    ) -> Result<Vec<VaultEntryDetail>, MobileError> {
+        let store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::autofill_matches(&store, &key, &hint)
+    }
+
     pub fn account_status(&self) -> Result<MobileAccountStatus, MobileError> {
         let store = self.lock()?;
         let acct = self.lock_account()?;

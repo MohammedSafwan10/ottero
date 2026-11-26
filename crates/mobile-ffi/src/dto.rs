@@ -149,6 +149,10 @@ pub struct VaultEntryDetail {
     pub password: String,
     pub url: String,
     pub totp_secret: String,
+    pub cardholder: String,
+    pub card_number: String,
+    pub card_expiry: String,
+    pub card_cvv: String,
     pub notes: String,
     pub favorite: bool,
 }

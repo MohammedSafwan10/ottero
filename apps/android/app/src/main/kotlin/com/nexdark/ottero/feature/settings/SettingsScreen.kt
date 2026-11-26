@@ -368,11 +368,35 @@ fun SettingsScreen(
             item(key = "privacy-card", contentType = "privacy") {
                 OtteroCard {
                     Text(
-                        text = "Passwords clipboard auto-clear",
+                        text = "Privacy & Security",
                         style = MaterialTheme.typography.titleSmall,
                         color = palette.ink,
                     )
                     Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Biometric unlock for Passwords",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.ink,
+                        )
+                        Switch(
+                            checked = prefs.requireBiometricsForVault,
+                            onCheckedChange = {
+                                onUpdatePrefs(prefs.copy(requireBiometricsForVault = it))
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "Clipboard auto-clear",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.muted,
+                    )
+                    Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(15, 30, 60).forEach { seconds ->
                             FilterChip(

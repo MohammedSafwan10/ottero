@@ -93,6 +93,10 @@ fn to_detail(item: &VaultItem) -> VaultEntryDetail {
         password: f.password.clone(),
         url: f.urls.first().cloned().unwrap_or_default(),
         totp_secret: f.totp.clone(),
+        cardholder: f.cardholder.clone(),
+        card_number: f.number.clone(),
+        card_expiry: f.expiry.clone(),
+        card_cvv: f.cvv.clone(),
         notes: f.notes.clone(),
         favorite: item.is_favorite(),
     }
@@ -384,6 +388,171 @@ pub(crate) fn save_login(
     store.save_vault_items(std::slice::from_ref(&sealed))?;
     enqueue_vault_item(store, &sealed);
     Ok(to_detail(&item))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn save_card(
+    store: &mut Store,
+    state: &VaultKeyState,
+    id: Option<String>,
+    title: String,
+    cardholder: String,
+    mut number: String,
+    expiry: String,
+    mut cvv: String,
+    mut notes: String,
+) -> Result<VaultEntryDetail, MobileError> {
+    let key = state
+        .key
+        .as_ref()
+        .ok_or_else(|| MobileError::InvalidInput {
+            reason: "Vault is locked".into(),
+        })?;
+    let now = clock::now();
+    let item = if let Some(raw_id) = id {
+        let item_id = parse_vault_item_id(&raw_id)?;
+        let sealed = store
+            .vault_item(item_id)?
+            .ok_or_else(|| MobileError::NotFound {
+                reason: "Vault item not found".into(),
+            })?;
+        let mut existing = open_item(key, &sealed)?;
+        if existing.kind() != ItemKind::Card {
+            number.zeroize();
+            cvv.zeroize();
+            notes.zeroize();
+            return Err(MobileError::InvalidInput {
+                reason: "Item is not a card".into(),
+            });
+        }
+        let mut fields = Zeroizing::new(existing.fields().clone());
+        fields.title = title;
+        fields.cardholder = cardholder;
+        fields.number = std::mem::take(&mut number);
+        fields.expiry = expiry;
+        fields.cvv = std::mem::take(&mut cvv);
+        fields.notes = std::mem::take(&mut notes);
+        existing.update(&fields, now)?;
+        existing
+    } else {
+        let mut fields = Zeroizing::new(ItemFields::new(ItemKind::Card));
+        fields.title = title;
+        fields.cardholder = cardholder;
+        fields.number = std::mem::take(&mut number);
+        fields.expiry = expiry;
+        fields.cvv = std::mem::take(&mut cvv);
+        fields.notes = std::mem::take(&mut notes);
+        VaultItem::new(&fields, now)?
+    };
+    let sealed = seal_item(key, &item)?;
+    store.save_vault_items(std::slice::from_ref(&sealed))?;
+    enqueue_vault_item(store, &sealed);
+    Ok(to_detail(&item))
+}
+
+pub(crate) fn save_secure_note(
+    store: &mut Store,
+    state: &VaultKeyState,
+    id: Option<String>,
+    title: String,
+    mut notes: String,
+) -> Result<VaultEntryDetail, MobileError> {
+    let key = state
+        .key
+        .as_ref()
+        .ok_or_else(|| MobileError::InvalidInput {
+            reason: "Vault is locked".into(),
+        })?;
+    let now = clock::now();
+    let item = if let Some(raw_id) = id {
+        let item_id = parse_vault_item_id(&raw_id)?;
+        let sealed = store
+            .vault_item(item_id)?
+            .ok_or_else(|| MobileError::NotFound {
+                reason: "Vault item not found".into(),
+            })?;
+        let mut existing = open_item(key, &sealed)?;
+        if existing.kind() != ItemKind::Note {
+            notes.zeroize();
+            return Err(MobileError::InvalidInput {
+                reason: "Item is not a secure note".into(),
+            });
+        }
+        let mut fields = Zeroizing::new(existing.fields().clone());
+        fields.title = title;
+        fields.notes = std::mem::take(&mut notes);
+        existing.update(&fields, now)?;
+        existing
+    } else {
+        let mut fields = Zeroizing::new(ItemFields::new(ItemKind::Note));
+        fields.title = title;
+        fields.notes = std::mem::take(&mut notes);
+        VaultItem::new(&fields, now)?
+    };
+    let sealed = seal_item(key, &item)?;
+    store.save_vault_items(std::slice::from_ref(&sealed))?;
+    enqueue_vault_item(store, &sealed);
+    Ok(to_detail(&item))
+}
+
+pub(crate) fn toggle_favorite(
+    store: &mut Store,
+    state: &VaultKeyState,
+    id: &str,
+) -> Result<bool, MobileError> {
+    let key = state
+        .key
+        .as_ref()
+        .ok_or_else(|| MobileError::InvalidInput {
+            reason: "Vault is locked".into(),
+        })?;
+    let item_id = parse_vault_item_id(id)?;
+    let sealed = store
+        .vault_item(item_id)?
+        .ok_or_else(|| MobileError::NotFound {
+            reason: "Vault item not found".into(),
+        })?;
+    let mut item = open_item(key, &sealed)?;
+    let next = !item.is_favorite();
+    item.set_favorite(next, clock::now())?;
+    let resealed = seal_item(key, &item)?;
+    store.save_vault_items(std::slice::from_ref(&resealed))?;
+    enqueue_vault_item(store, &resealed);
+    Ok(next)
+}
+
+pub(crate) fn autofill_matches(
+    store: &Store,
+    state: &VaultKeyState,
+    hint: &str,
+) -> Result<Vec<VaultEntryDetail>, MobileError> {
+    let Some(key) = state.key.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let needle = hint.trim().to_ascii_lowercase();
+    let sealed = store.vault_items()?;
+    let mut matches = Vec::new();
+    for s in sealed {
+        let Ok(item) = open_item(key, &s) else {
+            continue;
+        };
+        if item.is_trashed() || item.kind() != ItemKind::Login {
+            continue;
+        }
+        let f = item.fields();
+        let matched = needle.is_empty()
+            || item.title().to_ascii_lowercase().contains(&needle)
+            || f.urls
+                .iter()
+                .any(|u| u.to_ascii_lowercase().contains(&needle));
+        if matched {
+            matches.push(to_detail(&item));
+            if matches.len() >= 6 {
+                break;
+            }
+        }
+    }
+    Ok(matches)
 }
 
 pub(crate) fn trash_item(

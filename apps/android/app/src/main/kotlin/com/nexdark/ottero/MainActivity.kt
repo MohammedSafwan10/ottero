@@ -1,12 +1,13 @@
 package com.nexdark.ottero
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,11 +16,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -28,11 +31,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
+import kotlinx.coroutines.launch
 import com.nexdark.ottero.core.components.OtteroCard
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.core.feedback.OtteroConfirmDialogHost
@@ -56,7 +62,24 @@ private sealed interface EngineState {
     data class Failed(val message: String) : EngineState
 }
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
+
+    private var pendingSharedText by mutableStateOf<String?>(null)
+
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            val shared = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+            if (!shared.isNullOrEmpty()) {
+                pendingSharedText = shared
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShareIntent(intent)
+    }
 
     private fun prefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -78,6 +101,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        handleShareIntent(intent)
 
         val initialTheme = loadThemePreference()
         val initialOnboardingDone = isOnboardingDone()
@@ -169,6 +193,46 @@ class MainActivity : ComponentActivity() {
                                         OtteroPrefsStore.save(applicationContext, next)
                                     },
                                 )
+                                val shared = pendingSharedText
+                                if (shared != null) {
+                                    val shareScope = rememberCoroutineScope()
+                                    AlertDialog(
+                                        onDismissRequest = { pendingSharedText = null },
+                                        title = { Text("Save to Ottero") },
+                                        text = {
+                                            Text(
+                                                text = shared.take(240),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                        },
+                                        confirmButton = {
+                                            TextButton(
+                                                onClick = {
+                                                    pendingSharedText = null
+                                                    shareScope.launch {
+                                                        val firstLine = shared.lineSequence().firstOrNull()?.take(80).orEmpty()
+                                                        runSuspendCatching { state.engine.createNote(firstLine, shared) }
+                                                            .onSuccess { feedback.info("Saved as note") }
+                                                            .onFailure { feedback.error(it.message ?: "Could not save note") }
+                                                    }
+                                                },
+                                            ) { Text("Note") }
+                                        },
+                                        dismissButton = {
+                                            TextButton(
+                                                onClick = {
+                                                    pendingSharedText = null
+                                                    shareScope.launch {
+                                                        val taskTitle = shared.lineSequence().firstOrNull()?.take(160).orEmpty()
+                                                        runSuspendCatching { state.engine.quickAddTask(taskTitle, true) }
+                                                            .onSuccess { feedback.info("Saved as task") }
+                                                            .onFailure { feedback.error(it.message ?: "Could not save task") }
+                                                    }
+                                                },
+                                            ) { Text("Task") }
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

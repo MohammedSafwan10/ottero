@@ -69,6 +69,8 @@ dependencies {
   }
   // Realtime WebSocket sync listener
   implementation(libs.okhttp)
+  // Native BiometricPrompt for Passwords Vault
+  implementation(libs.androidx.biometric)
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests

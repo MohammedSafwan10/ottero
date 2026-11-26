@@ -35,6 +35,7 @@ data class OtteroPrefsState(
     val use24HourTime: Boolean = false,
     val showHolidays: Boolean = true,
     val clipboardClearSeconds: Int = 30,
+    val requireBiometricsForVault: Boolean = false,
 )
 
 val LocalOtteroPrefs = staticCompositionLocalOf { OtteroPrefsState() }
@@ -46,6 +47,7 @@ object OtteroPrefsStore {
     private const val KEY_24H = "use_24h_time"
     private const val KEY_HOLIDAYS = "show_holidays"
     private const val KEY_CLIPBOARD_SEC = "clipboard_clear_sec"
+    private const val KEY_VAULT_BIOMETRIC = "vault_biometric"
 
     fun load(context: Context): OtteroPrefsState {
         val sp = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -61,6 +63,7 @@ object OtteroPrefsStore {
             use24HourTime = sp.getBoolean(KEY_24H, false),
             showHolidays = sp.getBoolean(KEY_HOLIDAYS, true),
             clipboardClearSeconds = sp.getInt(KEY_CLIPBOARD_SEC, 30).coerceIn(15, 60),
+            requireBiometricsForVault = sp.getBoolean(KEY_VAULT_BIOMETRIC, false),
         )
     }
 
@@ -71,6 +74,7 @@ object OtteroPrefsStore {
             .putBoolean(KEY_24H, prefs.use24HourTime)
             .putBoolean(KEY_HOLIDAYS, prefs.showHolidays)
             .putInt(KEY_CLIPBOARD_SEC, prefs.clipboardClearSeconds)
+            .putBoolean(KEY_VAULT_BIOMETRIC, prefs.requireBiometricsForVault)
             .apply()
     }
 }
