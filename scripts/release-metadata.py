@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 version, directory = sys.argv[1:]
 assert re.fullmatch(r"0|[1-9]\d*", version.split('.')[0]) and re.fullmatch(r"\d+\.\d+\.\d+", version), 'invalid version'
 root = Path(directory)
-base = f'https://github.com/MohammedSafwan10/calmfold-releases/releases/download/v{version}'
+base = f'https://github.com/MohammedSafwan10/ottero-releases/releases/download/v{version}'
 mac = root / f'Ottero-{version}-macos-arm64.zip'
 windows = list(root.glob(f'Calmfold-{version}-full.nupkg'))
 assert len(windows) == 1, 'exact Windows full package required'

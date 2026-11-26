@@ -23,18 +23,18 @@ pub const RELEASE_KEY: &str = "RWSjZtug3Idn1JE3I3J+oLz/+Gm43DS0PSppGsO3rBrnt4L7e
 
 /// Where the feed lives (a public repository that holds only release files).
 pub const FEED_URL: &str =
-    "https://github.com/MohammedSafwan10/calmfold-releases/releases/latest/download/stable.json";
+    "https://github.com/MohammedSafwan10/ottero-releases/releases/latest/download/stable.json";
 pub const RELEASES_LATEST_URL: &str =
-    "https://github.com/MohammedSafwan10/calmfold-releases/releases/latest";
+    "https://github.com/MohammedSafwan10/ottero-releases/releases/latest";
 
 /// Pin metadata and signature to one release, even if 'latest' changes mid-check.
 #[must_use]
 pub fn feed_url_for_release(location: &str) -> Option<String> {
     let tag = location
-        .strip_prefix("https://github.com/MohammedSafwan10/calmfold-releases/releases/tag/")?;
+        .strip_prefix("https://github.com/MohammedSafwan10/ottero-releases/releases/tag/")?;
     parse_version(tag)?;
     Some(format!(
-        "https://github.com/MohammedSafwan10/calmfold-releases/releases/download/{tag}/stable.json"
+        "https://github.com/MohammedSafwan10/ottero-releases/releases/download/{tag}/stable.json"
     ))
 }
 
@@ -291,16 +291,16 @@ mod tests {
     fn metadata_and_signature_urls_are_pinned_to_one_valid_release() {
         assert_eq!(
             feed_url_for_release(
-                "https://github.com/MohammedSafwan10/calmfold-releases/releases/tag/v0.1.2"
+                "https://github.com/MohammedSafwan10/ottero-releases/releases/tag/v0.1.2"
             )
             .as_deref(),
             Some(
-                "https://github.com/MohammedSafwan10/calmfold-releases/releases/download/v0.1.2/stable.json"
+                "https://github.com/MohammedSafwan10/ottero-releases/releases/download/v0.1.2/stable.json"
             )
         );
         for location in [
             "https://evil.example/releases/tag/v0.1.2",
-            "https://github.com/MohammedSafwan10/calmfold-releases/releases/tag/../../bad",
+            "https://github.com/MohammedSafwan10/ottero-releases/releases/tag/../../bad",
             RELEASES_LATEST_URL,
         ] {
             assert!(feed_url_for_release(location).is_none());

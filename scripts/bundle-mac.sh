@@ -35,7 +35,7 @@ info={'CFBundleName':'Ottero','CFBundleDisplayName':'Ottero','CFBundleIdentifier
  'CFBundleExecutable':'Ottero','CFBundleIconFile':'Ottero','CFBundlePackageType':'APPL',
  'CFBundleShortVersionString':version,'CFBundleVersion':version,'LSMinimumSystemVersion':'12.0',
  'NSHighResolutionCapable':True,'NSHumanReadableCopyright':'© Nexdark Labs',
- 'SUPublicEDKey':public,'SUFeedURL':'https://github.com/MohammedSafwan10/calmfold-releases/releases/latest/download/appcast.xml',
+ 'SUPublicEDKey':public,'SUFeedURL':'https://github.com/MohammedSafwan10/ottero-releases/releases/latest/download/appcast.xml',
  'SURequireSignedFeed':True,'SUVerifyUpdateBeforeExtraction':True,'SUShowReleaseNotes':False,
  'SUEnableAutomaticChecks':False,'SUAutomaticallyUpdate':False}
 (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))

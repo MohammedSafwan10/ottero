@@ -27,7 +27,7 @@ rss=ET.Element('rss',version='2.0'); channel=ET.SubElement(rss,'channel')
 ET.SubElement(channel,'title').text='Ottero'
 item=ET.SubElement(channel,'item'); ET.SubElement(item,'title').text=f'Ottero {version}'
 ET.SubElement(item,f'{{{ns}}}minimumSystemVersion').text='12.0'
-ET.SubElement(item,'enclosure',{'url':f'https://github.com/MohammedSafwan10/calmfold-releases/releases/download/v{version}/{archive.name}',f'{{{ns}}}version':version,f'{{{ns}}}shortVersionString':version,f'{{{ns}}}edSignature':signature,'length':str(archive.stat().st_size),'type':'application/octet-stream'})
+ET.SubElement(item,'enclosure',{'url':f'https://github.com/MohammedSafwan10/ottero-releases/releases/download/v{version}/{archive.name}',f'{{{ns}}}version':version,f'{{{ns}}}shortVersionString':version,f'{{{ns}}}edSignature':signature,'length':str(archive.stat().st_size),'type':'application/octet-stream'})
 appcast=root/'appcast.xml'; ET.ElementTree(rss).write(appcast,encoding='utf-8',xml_declaration=True)
 subprocess.run([str(signer),'--ed-key-file',key,str(appcast)],check=True)
 subprocess.run([str(signer),'--ed-key-file',key,'--verify',str(appcast)],check=True)

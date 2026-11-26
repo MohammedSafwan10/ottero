@@ -3,7 +3,7 @@
   <h1>Ottero</h1>
   <p>Notes, tasks, calendar, habits, focus and passwords.<br>Local-first. Native. Made for macOS, Windows and Android.</p>
   <p>
-    <a href="https://github.com/MohammedSafwan10/calmfold-releases/releases/latest">Download</a> ·
+    <a href="https://github.com/MohammedSafwan10/ottero-releases/releases/latest">Download</a> ·
     <a href="CONTRIBUTING.md">Contribute</a> ·
     <a href="docs/roadmap.md">Roadmap</a> ·
     <a href="LICENSE">GPLv3</a>
@@ -20,7 +20,7 @@ UniFFI. iOS is planned next.
 
 ## Download
 
-Get official builds from [Ottero Releases](https://github.com/MohammedSafwan10/calmfold-releases/releases/latest).
+Get official builds from [Ottero Releases](https://github.com/MohammedSafwan10/ottero-releases/releases/latest).
 
 | Platform | Package |
 | --- | --- |

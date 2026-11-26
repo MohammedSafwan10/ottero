@@ -130,7 +130,7 @@ pub fn check(feed: &ottero_core::update::Feed, cx: &mut App) -> Result<bool> {
     }
     command(
         &format!(
-            "check https://github.com/MohammedSafwan10/calmfold-releases/releases/download/v{}/appcast.xml {}",
+            "check https://github.com/MohammedSafwan10/ottero-releases/releases/download/v{}/appcast.xml {}",
             feed.version, feed.version
         ),
         cx,

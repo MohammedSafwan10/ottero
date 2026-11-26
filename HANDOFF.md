@@ -55,7 +55,7 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
   - **Complete Quiet Alabaster & Smoked Obsidian Redesign (`0.4.0`):** Elevated
     surfaces across Focus, Calendar, Notes, Passwords, and Developer; responsive
     wrapping headers; refreshed README/docs/Today screenshot; automated
-    `publish` job in `.github/workflows/release.yml` for `calmfold-releases`.
+    `publish` job in `.github/workflows/release.yml` for `ottero-releases` (renamed from `calmfold-releases`).
   - **Responsive Settings & Calmer Notifications (`0.3.1`):** Stacked wide Settings
     rows (`Updates`, `Interface`/`Code` fonts, `Line spacing`, `Content width`,
     `Lock after`, `Unlock with`) and wrapped Account action rows so buttons like
