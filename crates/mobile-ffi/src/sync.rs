@@ -15,7 +15,8 @@ use ottero_crypto::{SecretKey, SecretString, Zeroize, Zeroizing, vault_link};
 use ottero_storage::{AccountWrap, Store, VaultMeta};
 use ottero_sync_client::{
     DEFAULT_SYNC_URL, SyncClient, SyncVaultMetaPayload, VAULT_META_SYNC_ID, apply_decrypted_page,
-    enqueue_full_snapshot, enqueue_local_change, sync_once_with_apply,
+    derive_sync_account_id as shared_derive_sync_account_id, enqueue_full_snapshot,
+    enqueue_local_change, sync_once_with_apply,
 };
 use ottero_sync_protocol::Collection;
 use serde::Deserialize;
@@ -155,19 +156,10 @@ fn get_authed(agent: &ureq::Agent, path: &str, bearer: &str) -> Result<ApiReply,
     )
 }
 
-/// Derives the separator-safe sync `account_id` used in AEAD AAD, matching
-/// Desktop's `apps/desktop/src/library/sync.rs` derivation byte-for-byte.
+/// Derives the separator-safe sync `account_id` used in AEAD AAD, delegating
+/// to `ottero_sync_client::derive_sync_account_id` shared with Desktop.
 pub(crate) fn derive_sync_account_id(email: &str) -> String {
-    normalize_email(email)
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    shared_derive_sync_account_id(email)
 }
 
 fn fetch_me_and_unwrap_key(
@@ -726,29 +718,11 @@ pub(crate) fn sync_now(
     })
 }
 
-/// Helper called after local mobile writes to enqueue an E2EE change when signed in.
-pub(crate) fn enqueue_mutation<T: serde::Serialize>(
-    store: &Store,
-    collection: Collection,
-    item_id: &str,
-    fields: &[&str],
-    deleted: bool,
-    payload: &T,
-) {
-    let Ok(state) = store.sync_state() else {
-        return;
-    };
+/// Returns the active sync `device_id` if this device is signed in to Ottero Cloud.
+pub(crate) fn active_device_id(store: &Store) -> Option<String> {
+    let state = store.sync_state().ok()?;
     if state.account_id.is_empty() || state.device_id.is_empty() {
-        return;
+        return None;
     }
-    let _ = enqueue_local_change(
-        store,
-        &state.device_id,
-        collection,
-        item_id,
-        fields,
-        deleted,
-        payload,
-        clock::now(),
-    );
+    Some(state.device_id)
 }

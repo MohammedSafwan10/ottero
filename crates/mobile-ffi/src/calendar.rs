@@ -3,23 +3,16 @@
 use jiff::civil::{Date, Time};
 use ottero_core::{Event, EventId, clock, parse_event};
 use ottero_storage::Store;
-use ottero_sync_client::SyncEventPayload;
-use ottero_sync_protocol::Collection;
+use ottero_sync_client::enqueue_event_change;
 
 use crate::dto::CalendarEventItem;
 use crate::error::MobileError;
 use crate::sync;
 
 fn enqueue_event(store: &Store, event: &Event) {
-    let payload = SyncEventPayload::from(event);
-    sync::enqueue_mutation(
-        store,
-        Collection::Events,
-        &event.id().to_string(),
-        &[],
-        event.is_trashed(),
-        &payload,
-    );
+    if let Some(device_id) = sync::active_device_id(store) {
+        let _ = enqueue_event_change(store, &device_id, event, clock::now());
+    }
 }
 
 fn parse_event_id(id: &str) -> Result<EventId, MobileError> {

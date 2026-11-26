@@ -3,23 +3,16 @@
 use jiff::civil::Date;
 use ottero_core::{Priority, Task, TaskId, TaskStatus, clock, parse_quick_add};
 use ottero_storage::{Store, TaskFilter};
-use ottero_sync_client::SyncTaskPayload;
-use ottero_sync_protocol::Collection;
+use ottero_sync_client::enqueue_task_change;
 
 use crate::dto::{MobileTaskFilter, TaskItem};
 use crate::error::MobileError;
 use crate::sync;
 
 fn enqueue_task(store: &Store, task: &Task) {
-    let payload = SyncTaskPayload::from_task(task, &[]);
-    sync::enqueue_mutation(
-        store,
-        Collection::Tasks,
-        &task.id().to_string(),
-        &[],
-        task.deleted_at().is_some(),
-        &payload,
-    );
+    if let Some(device_id) = sync::active_device_id(store) {
+        let _ = enqueue_task_change(store, &device_id, task, clock::now());
+    }
 }
 
 pub(crate) fn task_to_dto(t: &Task, today: Date) -> TaskItem {

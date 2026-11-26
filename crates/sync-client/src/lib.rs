@@ -14,7 +14,9 @@ pub use engine::{
     sync_once_with_apply,
 };
 pub use record::{
-    SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload, SyncTaskPayload,
-    SyncVaultMetaPayload, SyncVaultPayload, VAULT_META_SYNC_ID, apply_decrypted_change,
-    apply_decrypted_page, enqueue_full_snapshot, enqueue_local_change,
+    ALL_TASK_SYNC_FIELDS, SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload,
+    SyncTaskPayload, SyncVaultMetaPayload, SyncVaultPayload, VAULT_META_SYNC_ID,
+    apply_decrypted_change, apply_decrypted_page, derive_sync_account_id, enqueue_event_change,
+    enqueue_full_snapshot, enqueue_habit_change, enqueue_local_change, enqueue_note_change,
+    enqueue_note_tombstone, enqueue_task_change, enqueue_vault_item_change,
 };

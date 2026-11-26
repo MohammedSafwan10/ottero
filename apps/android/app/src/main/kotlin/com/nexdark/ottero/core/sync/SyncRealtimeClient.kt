@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.util.Log
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -157,6 +158,7 @@ class SyncRealtimeClient(
                             webSocket.close(1000, "stale")
                             return
                         }
+                        Log.d(TAG, "WS connected (status=${response.code})")
                         backoffMs = INITIAL_BACKOFF_MS
                         _isLive.value = true
                         startAppPing(webSocket, gen)
@@ -173,6 +175,7 @@ class SyncRealtimeClient(
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                         if (generation.get() != gen) return
+                        Log.d(TAG, "WS closed (code=$code)")
                         _isLive.value = false
                         pingJob?.cancel()
                         activeSocket = null
@@ -185,6 +188,7 @@ class SyncRealtimeClient(
                         response: Response?,
                     ) {
                         if (generation.get() != gen) return
+                        Log.w(TAG, "WS failure (http=${response?.code}, err=${t.javaClass.simpleName})")
                         _isLive.value = false
                         pingJob?.cancel()
                         activeSocket = null
@@ -218,6 +222,7 @@ class SyncRealtimeClient(
         when (json.optString("type")) {
             "seq_advanced" -> {
                 val latestSeq = json.optLong("latest_seq", -1L)
+                Log.d(TAG, "WS seq_advanced latest_seq=$latestSeq")
                 scope.launch {
                     val creds = runCatching { engine.syncWsCredentials() }.getOrNull()
                     val lastPull = creds?.lastPullSeq ?: 0L
@@ -286,6 +291,7 @@ class SyncRealtimeClient(
     }
 
     private companion object {
+        const val TAG = "OtteroSync"
         const val INITIAL_BACKOFF_MS = 2_000L
         const val MAX_BACKOFF_MS = 30_000L
         const val PING_INTERVAL_MS = 25_000L

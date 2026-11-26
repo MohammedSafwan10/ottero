@@ -2,23 +2,16 @@
 
 use ottero_core::{Note, NoteId, clock};
 use ottero_storage::{NoteSummary, Store};
-use ottero_sync_client::SyncNotePayload;
-use ottero_sync_protocol::Collection;
+use ottero_sync_client::{enqueue_note_change, enqueue_note_tombstone};
 
 use crate::dto::{NoteDetail, NoteListItem, TagCount};
 use crate::error::MobileError;
 use crate::sync;
 
 fn enqueue_note(store: &Store, note: &Note) {
-    let payload = SyncNotePayload::from(note);
-    sync::enqueue_mutation(
-        store,
-        Collection::Notes,
-        &note.id().to_string(),
-        &[],
-        note.is_trashed(),
-        &payload,
-    );
+    if let Some(device_id) = sync::active_device_id(store) {
+        let _ = enqueue_note_change(store, &device_id, note, clock::now());
+    }
 }
 
 pub(crate) fn summary_to_dto(s: NoteSummary) -> NoteListItem {
@@ -149,14 +142,9 @@ pub(crate) fn list_trashed_notes(store: &Store) -> Result<Vec<NoteListItem>, Mob
 pub(crate) fn delete_note_permanently(store: &mut Store, id: &str) -> Result<(), MobileError> {
     let note_id = parse_note_id(id)?;
     store.delete_note_permanently(note_id)?;
-    sync::enqueue_mutation(
-        store,
-        Collection::Notes,
-        &note_id.to_string(),
-        &["record"],
-        true,
-        &serde_json::json!({ "id": note_id }),
-    );
+    if let Some(device_id) = sync::active_device_id(store) {
+        let _ = enqueue_note_tombstone(store, &device_id, note_id, clock::now());
+    }
     Ok(())
 }
 

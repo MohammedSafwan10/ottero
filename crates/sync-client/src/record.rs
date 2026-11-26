@@ -273,6 +273,151 @@ pub fn enqueue_local_change(
     Ok(hlc)
 }
 
+/// Derives the separator-safe sync `account_id` used in AEAD AAD across all
+/// platforms (Desktop, Android, iOS) so every client produces identical AADs.
+#[must_use]
+pub fn derive_sync_account_id(email: &str) -> String {
+    email
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Every per-field LWW column tracked for `Collection::Tasks`.
+pub const ALL_TASK_SYNC_FIELDS: &[&str] = &[
+    "title",
+    "notes",
+    "status",
+    "priority",
+    "due",
+    "deleted_at",
+    "recurrence",
+    "project",
+];
+
+/// Enqueues a note create/edit/pin/trash/restore change (soft-trash is carried
+/// in `payload.deleted_at`; `deleted` is always `false`).
+pub fn enqueue_note_change(
+    store: &Store,
+    device_id: &str,
+    note: &Note,
+    now: Timestamp,
+) -> Result<Hlc, SyncClientError> {
+    enqueue_local_change(
+        store,
+        device_id,
+        Collection::Notes,
+        &note.id().to_string(),
+        &["record"],
+        false,
+        &SyncNotePayload::from(note),
+        now,
+    )
+}
+
+/// Enqueues a permanent-delete tombstone for a note (`deleted = true`).
+pub fn enqueue_note_tombstone(
+    store: &Store,
+    device_id: &str,
+    id: NoteId,
+    now: Timestamp,
+) -> Result<Hlc, SyncClientError> {
+    enqueue_local_change(
+        store,
+        device_id,
+        Collection::Notes,
+        &id.to_string(),
+        &["record"],
+        true,
+        &serde_json::json!({}),
+        now,
+    )
+}
+
+/// Enqueues a full task snapshot (create/edit/complete/trash/restore).
+pub fn enqueue_task_change(
+    store: &Store,
+    device_id: &str,
+    task: &Task,
+    now: Timestamp,
+) -> Result<Hlc, SyncClientError> {
+    enqueue_local_change(
+        store,
+        device_id,
+        Collection::Tasks,
+        &task.id().to_string(),
+        ALL_TASK_SYNC_FIELDS,
+        false,
+        &SyncTaskPayload::from_task(task, &[]),
+        now,
+    )
+}
+
+/// Enqueues a calendar event create/edit/trash/restore change.
+pub fn enqueue_event_change(
+    store: &Store,
+    device_id: &str,
+    event: &Event,
+    now: Timestamp,
+) -> Result<Hlc, SyncClientError> {
+    enqueue_local_change(
+        store,
+        device_id,
+        Collection::Events,
+        &event.id().to_string(),
+        &["record"],
+        false,
+        &SyncEventPayload::from(event),
+        now,
+    )
+}
+
+/// Enqueues a habit create/edit/archive change.
+pub fn enqueue_habit_change(
+    store: &Store,
+    device_id: &str,
+    habit: &Habit,
+    now: Timestamp,
+) -> Result<Hlc, SyncClientError> {
+    enqueue_local_change(
+        store,
+        device_id,
+        Collection::Habits,
+        &habit.id().to_string(),
+        &["record"],
+        false,
+        &SyncHabitPayload::from(habit),
+        now,
+    )
+}
+
+/// Enqueues a sealed vault item create/edit/trash/restore change.
+pub fn enqueue_vault_item_change(
+    store: &Store,
+    device_id: &str,
+    sealed: &SealedItem,
+    now: Timestamp,
+) -> Result<Hlc, SyncClientError> {
+    enqueue_local_change(
+        store,
+        device_id,
+        Collection::Vault,
+        &sealed.id.to_string(),
+        &["record"],
+        false,
+        &SyncVaultPayload::from(sealed),
+        now,
+    )
+}
+
 /// Applies a full pull page in foreign-key dependency order (`Projects` →
 /// `Tasks` → other collections) so `PRAGMA foreign_keys = ON` never fails on
 /// out-of-order delivery. Returns the list of collections whose local state

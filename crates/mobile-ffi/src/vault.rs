@@ -17,23 +17,16 @@ use ottero_crypto::{
     seal,
 };
 use ottero_storage::{MasterWrap, SealedItem, Store, VaultMeta};
-use ottero_sync_client::SyncVaultPayload;
-use ottero_sync_protocol::Collection;
+use ottero_sync_client::enqueue_vault_item_change;
 
 use crate::dto::{MobileVaultStatus, TotpCodeSnapshot, VaultEntryDetail, VaultEntrySummary};
 use crate::error::MobileError;
 use crate::sync;
 
 fn enqueue_vault_item(store: &Store, sealed: &SealedItem) {
-    let payload = SyncVaultPayload::from(sealed);
-    sync::enqueue_mutation(
-        store,
-        Collection::Vault,
-        &sealed.id.to_string(),
-        &[],
-        false,
-        &payload,
-    );
+    if let Some(device_id) = sync::active_device_id(store) {
+        let _ = enqueue_vault_item_change(store, &device_id, sealed, clock::now());
+    }
 }
 
 const KEY_AAD: &[u8] = b"keepstone-vault-key-v1";

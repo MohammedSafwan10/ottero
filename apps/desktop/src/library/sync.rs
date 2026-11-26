@@ -315,16 +315,7 @@ impl Library {
         // happened before the first sync.
         let first_sync = state.account_id.is_empty();
         let account_id = if first_sync {
-            let derived: String = email
-                .chars()
-                .map(|c| {
-                    if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                        c
-                    } else {
-                        '_'
-                    }
-                })
-                .collect();
+            let derived = ottero_sync_client::derive_sync_account_id(&email);
             state.account_id = derived.clone();
             state.needs_full_resync = true;
             let _ = self.store.save_sync_state(&state);

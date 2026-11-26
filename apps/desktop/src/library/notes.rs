@@ -109,6 +109,13 @@ impl Library {
         self.store
             .save_note(&note)
             .context("Couldn't create today's note")?;
+        self.record_sync(
+            ottero_sync_protocol::Collection::Notes,
+            &note.id().to_string(),
+            &["record"],
+            false,
+            &crate::sync::SyncNotePayload::from(&note),
+        );
         cx.emit(LibraryEvent::NotesChanged);
         Ok(note.id())
     }
@@ -144,6 +151,13 @@ impl Library {
             match Note::new(&title, body, clock::now()) {
                 Ok(note) => {
                     self.store.save_note(&note)?;
+                    self.record_sync(
+                        ottero_sync_protocol::Collection::Notes,
+                        &note.id().to_string(),
+                        &["record"],
+                        false,
+                        &crate::sync::SyncNotePayload::from(&note),
+                    );
                     imported += 1;
                 }
                 Err(_) => skipped += 1,
@@ -229,7 +243,17 @@ impl Library {
     }
 
     pub fn empty_note_trash(&mut self, cx: &mut Context<Self>) -> Result<usize> {
+        let trashed = self.store.list_notes(true)?;
         let n = self.store.empty_note_trash()?;
+        for summary in trashed {
+            self.record_sync(
+                ottero_sync_protocol::Collection::Notes,
+                &summary.id.to_string(),
+                &["record"],
+                true,
+                &serde_json::json!({}),
+            );
+        }
         cx.emit(LibraryEvent::NotesChanged);
         Ok(n)
     }
