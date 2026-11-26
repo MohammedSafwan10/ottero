@@ -1,8 +1,10 @@
 package com.nexdark.ottero.feature.habits
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,13 +12,13 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,10 +27,10 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Spa
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -71,6 +74,7 @@ fun HabitsScreen(
 
     var draft by rememberSaveable { mutableStateOf("") }
     var habits by remember { mutableStateOf<List<HabitItem>>(emptyList()) }
+    var editingHabit by remember { mutableStateOf<HabitItem?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
     fun submitQuickAdd() {
@@ -98,6 +102,15 @@ fun HabitsScreen(
         }
     }
 
+    val activeHabit = editingHabit
+    if (activeHabit != null) {
+        HabitDetailSheet(
+            engine = engine,
+            habit = activeHabit,
+            onDismiss = { editingHabit = null },
+        )
+    }
+
     OtteroPullToRefresh(engine = engine, modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
@@ -111,102 +124,113 @@ fun HabitsScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-        item(key = "habits-quick-add", contentType = "quick_add") {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Add a habit", color = palette.muted) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Add,
-                        contentDescription = null,
-                        tint = palette.muted,
-                    )
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { submitQuickAdd() }),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = palette.card,
-                    unfocusedContainerColor = palette.card,
-                    focusedBorderColor = palette.ink,
-                    unfocusedBorderColor = palette.border,
-                    focusedTextColor = palette.ink,
-                    unfocusedTextColor = palette.ink,
-                ),
-            )
-        }
-
-        if (!isLoading && habits.isEmpty()) {
-            item(key = "habits-empty", contentType = "empty") {
-                OtteroCard {
-                    EmptyPlaceholder(
-                        icon = Icons.Outlined.Spa,
-                        title = "No habits yet",
-                        hint = "Add a habit above.",
-                    )
-                }
-            }
-        } else {
-            items(
-                items = habits,
-                key = { "habit-${it.id}" },
-                contentType = { "habit_card" },
-            ) { habit ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            scope.launch {
-                                runSuspendCatching { engine.tapHabitToday(habit.id) }
-                                    .onFailure { feedback.error(it.message ?: "Could not log habit") }
-                            }
-                        },
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (habit.doneToday) palette.success.copy(alpha = 0.14f) else palette.card,
-                    border = BorderStroke(
-                        1.dp,
-                        if (habit.doneToday) palette.success else palette.border,
+            item(key = "habits-quick-add", contentType = "quick_add") {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("Add a habit", color = palette.muted) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = null,
+                            tint = palette.muted,
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submitQuickAdd() }),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = palette.card,
+                        unfocusedContainerColor = palette.card,
+                        focusedBorderColor = palette.ink,
+                        unfocusedBorderColor = palette.border,
+                        focusedTextColor = palette.ink,
+                        unfocusedTextColor = palette.ink,
                     ),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .heightIn(min = 56.dp)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
+                )
+            }
+
+            if (!isLoading && habits.isEmpty()) {
+                item(key = "habits-empty", contentType = "empty") {
+                    OtteroCard {
+                        EmptyPlaceholder(
+                            icon = Icons.Outlined.Spa,
+                            title = "No habits yet",
+                            hint = "Add a habit above.",
+                        )
+                    }
+                }
+            } else {
+                items(
+                    items = habits,
+                    key = { "habit-${it.id}" },
+                    contentType = { "habit_card" },
+                ) { habit ->
+                    OtteroCard(modifier = Modifier.clickable { editingHabit = habit }) {
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f),
                         ) {
-                            Icon(
-                                imageVector = if (habit.doneToday) Icons.Outlined.CheckCircle else Icons.Outlined.Spa,
-                                contentDescription = null,
-                                tint = if (habit.doneToday) palette.success else palette.muted,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.width(12.dp))
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    scope.launch {
+                                        runSuspendCatching { engine.tapHabitToday(habit.id) }
+                                            .onFailure { feedback.error(it.message ?: "Could not log habit") }
+                                    }
+                                },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (habit.doneToday) Icons.Outlined.CheckCircle else Icons.Outlined.Spa,
+                                    contentDescription = "Log habit",
+                                    tint = if (habit.doneToday) palette.success else palette.muted,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = habit.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = palette.ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    habit.recentDays.forEach { done ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(if (done) palette.success else palette.border),
+                                        )
+                                    }
+                                    if (habit.currentStreak > 0u) {
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = "${habit.currentStreak}d",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = palette.muted,
+                                        )
+                                    }
+                                }
+                            }
                             Text(
-                                text = habit.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = palette.ink,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                text = "${habit.todayCount}/${habit.targetPerDay}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (habit.doneToday) palette.success else palette.muted,
                             )
                         }
-                        Text(
-                            text = "${habit.todayCount}/${habit.targetPerDay}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (habit.doneToday) palette.success else palette.muted,
-                        )
                     }
                 }
             }
         }
-    }
     }
 }

@@ -337,6 +337,8 @@ fun TasksScreen(
                                 val meta = buildList {
                                     task.dueDate?.let { add(if (task.overdue) "Overdue · $it" else it) }
                                     priorityLabel(task.priority)?.let { add(it) }
+                                    task.projectName?.let { add("#$it") }
+                                    if (task.subtaskTotal > 0u) add("${task.subtaskDone}/${task.subtaskTotal}")
                                 }.joinToString(" · ")
                                 if (meta.isNotEmpty()) {
                                     Text(

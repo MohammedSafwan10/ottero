@@ -43,16 +43,41 @@ pub struct TaskItem {
     pub priority: u8,
     pub due_date: Option<String>,
     pub overdue: bool,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub subtask_done: u32,
+    pub subtask_total: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ProjectItem {
+    pub id: String,
+    pub name: String,
+    pub open_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct HabitItem {
     pub id: String,
     pub name: String,
+    pub schedule_code: String,
     pub target_per_day: u16,
     pub today_count: u16,
     pub due_today: bool,
     pub done_today: bool,
+    pub current_streak: u32,
+    pub best_streak: u32,
+    pub recent_days: Vec<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FocusSessionItem {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub actual_secs: u32,
+    pub completed: bool,
+    pub ended_at_ms: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]

@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -43,15 +45,22 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nexdark.ottero.core.async.runSuspendCatching
+import com.nexdark.ottero.core.bridge.OtteroEngine
+import com.nexdark.ottero.core.components.OtteroCard
+import com.nexdark.ottero.core.components.SectionHeader
 import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.onStart
+import uniffi.ottero_mobile_ffi.FocusSessionItem
 import java.util.Locale
 
-enum class FocusPreset(val label: String, val seconds: Int) {
-    Focus("Focus", 25 * 60),
-    ShortBreak("Short break", 5 * 60),
-    LongBreak("Long break", 15 * 60),
+enum class FocusPreset(val label: String, val code: String, val seconds: Int) {
+    Focus("Focus", "focus", 25 * 60),
+    ShortBreak("Short break", "short_break", 5 * 60),
+    LongBreak("Long break", "long_break", 15 * 60),
 }
 
 /**
@@ -114,6 +123,7 @@ fun rememberFocusTimerState(): FocusTimerState = remember { FocusTimerState() }
 
 @Composable
 fun FocusScreen(
+    engine: OtteroEngine,
     timer: FocusTimerState,
     contentPadding: PaddingValues,
 ) {
@@ -121,13 +131,30 @@ fun FocusScreen(
     val feedback = LocalOtteroFeedback.current
     val haptic = LocalHapticFeedback.current
     val layoutDirection = LocalLayoutDirection.current
+    var sessions by remember { mutableStateOf<List<FocusSessionItem>>(emptyList()) }
+
+    LaunchedEffect(engine) {
+        engine.changes.onStart { emit(Unit) }.collectLatest {
+            sessions = runSuspendCatching { engine.listTodayFocusSessions() }.getOrDefault(emptyList())
+        }
+    }
 
     LaunchedEffect(timer.running) {
         if (!timer.running) return@LaunchedEffect
         while (timer.running) {
             if (timer.syncNow()) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                feedback.info("${timer.preset.label} finished")
+                val finishedPreset = timer.preset
+                runSuspendCatching {
+                    engine.recordFocusSession(
+                        label = finishedPreset.label,
+                        kindCode = finishedPreset.code,
+                        plannedSecs = finishedPreset.seconds,
+                        actualSecs = finishedPreset.seconds,
+                        completed = true,
+                    )
+                }
+                feedback.info("${finishedPreset.label} finished and saved")
                 break
             }
             delay(250L)
@@ -139,10 +166,12 @@ fun FocusScreen(
     val mins = timer.remainingSeconds / 60
     val secs = timer.remainingSeconds % 60
     val timeText = String.format(Locale.US, "%02d:%02d", mins, secs)
+    val focusTotalMins = sessions.filter { it.kind == "focus" }.sumOf { it.actualSecs.toInt() } / 60
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(
                 start = contentPadding.calculateStartPadding(layoutDirection) + 20.dp,
                 end = contentPadding.calculateEndPadding(layoutDirection) + 20.dp,
@@ -150,7 +179,7 @@ fun FocusScreen(
                 bottom = contentPadding.calculateBottomPadding() + 32.dp,
             ),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -172,11 +201,11 @@ fun FocusScreen(
         }
 
         Box(
-            modifier = Modifier.size(240.dp),
+            modifier = Modifier.size(230.dp),
             contentAlignment = Alignment.Center,
         ) {
             val trackColor = palette.border
-            val progressColor = palette.ink
+            val progressColor = if (timer.preset == FocusPreset.Focus) palette.ink else palette.success
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val stroke = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round)
                 drawArc(
@@ -197,7 +226,7 @@ fun FocusScreen(
             Text(
                 text = timeText,
                 style = MaterialTheme.typography.displayMedium.copy(
-                    fontSize = 52.sp,
+                    fontSize = 50.sp,
                     fontWeight = FontWeight.Medium,
                     fontFeatureSettings = "tnum",
                 ),
@@ -238,6 +267,37 @@ fun FocusScreen(
                     style = MaterialTheme.typography.labelLarge,
                     color = palette.ink,
                 )
+            }
+        }
+
+        if (sessions.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SectionHeader(
+                    title = "Today · ${focusTotalMins}m focused",
+                )
+                sessions.forEach { session ->
+                    OtteroCard {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = session.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.ink,
+                            )
+                            Text(
+                                text = "${(session.actualSecs.toInt() / 60).coerceAtLeast(1)}m",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = palette.muted,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

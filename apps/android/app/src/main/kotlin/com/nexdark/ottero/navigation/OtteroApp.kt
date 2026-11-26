@@ -571,6 +571,7 @@ private fun DestinationContent(
         )
 
         Destination.Focus -> FocusScreen(
+            engine = engine,
             timer = focusTimer,
             contentPadding = contentPadding,
         )

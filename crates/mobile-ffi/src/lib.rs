@@ -4,6 +4,7 @@
 mod calendar;
 mod dto;
 mod error;
+mod focus;
 mod habits;
 mod notes;
 mod sync;
@@ -19,10 +20,11 @@ use sync::AccountSessionState;
 use vault::VaultKeyState;
 
 pub use dto::{
-    AccountSessionBundle, AppInfo, CalendarEventItem, HabitItem, HolidayItem, MobileAccountStatus,
-    MobileSignInResult, MobileSignInStatus, MobileSyncReport, MobileTaskFilter, MobileVaultStatus,
-    NoteDetail, NoteListItem, SyncWsCredentials, TagCount, TaskItem, TodaySnapshot,
-    TotpCodeSnapshot, UnifiedTrashSnapshot, VaultEntryDetail, VaultEntrySummary,
+    AccountSessionBundle, AppInfo, CalendarEventItem, FocusSessionItem, HabitItem, HolidayItem,
+    MobileAccountStatus, MobileSignInResult, MobileSignInStatus, MobileSyncReport,
+    MobileTaskFilter, MobileVaultStatus, NoteDetail, NoteListItem, ProjectItem, SyncWsCredentials,
+    TagCount, TaskItem, TodaySnapshot, TotpCodeSnapshot, UnifiedTrashSnapshot, VaultEntryDetail,
+    VaultEntrySummary,
 };
 pub use error::MobileError;
 
@@ -435,6 +437,80 @@ impl OtteroMobile {
         let store = self.lock()?;
         let acct = self.lock_account()?;
         sync::ws_credentials(&store, &acct)
+    }
+
+    pub fn set_task_project(
+        &self,
+        id: String,
+        project_id: Option<String>,
+    ) -> Result<TaskItem, MobileError> {
+        let mut store = self.lock()?;
+        tasks::set_task_project(&mut store, &id, project_id)
+    }
+
+    pub fn list_projects(&self) -> Result<Vec<ProjectItem>, MobileError> {
+        let store = self.lock()?;
+        tasks::list_projects(&store)
+    }
+
+    pub fn create_project(&self, name: String) -> Result<ProjectItem, MobileError> {
+        let mut store = self.lock()?;
+        tasks::create_project(&mut store, &name)
+    }
+
+    pub fn list_subtasks(&self, parent_id: String) -> Result<Vec<TaskItem>, MobileError> {
+        let store = self.lock()?;
+        tasks::list_subtasks(&store, &parent_id)
+    }
+
+    pub fn add_subtask(&self, parent_id: String, title: String) -> Result<TaskItem, MobileError> {
+        let mut store = self.lock()?;
+        tasks::add_subtask(&mut store, &parent_id, &title)
+    }
+
+    pub fn update_habit(
+        &self,
+        id: String,
+        name: String,
+        schedule_code: String,
+        target: u16,
+    ) -> Result<HabitItem, MobileError> {
+        let mut store = self.lock()?;
+        habits::update_habit(&mut store, &id, &name, &schedule_code, target)
+    }
+
+    pub fn archive_habit(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        habits::archive_habit(&mut store, &id)
+    }
+
+    pub fn delete_habit(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        habits::delete_habit(&mut store, &id)
+    }
+
+    pub fn record_focus_session(
+        &self,
+        label: String,
+        kind_code: String,
+        planned_secs: u32,
+        actual_secs: u32,
+        completed: bool,
+    ) -> Result<FocusSessionItem, MobileError> {
+        let mut store = self.lock()?;
+        focus::record_session(
+            &mut store,
+            &label,
+            &kind_code,
+            planned_secs,
+            actual_secs,
+            completed,
+        )
+    }
+
+    pub fn list_today_focus_sessions(&self) -> Result<Vec<FocusSessionItem>, MobileError> {
+        let store = self.lock()?;
+        focus::list_today_sessions(&store)
     }
 }
 

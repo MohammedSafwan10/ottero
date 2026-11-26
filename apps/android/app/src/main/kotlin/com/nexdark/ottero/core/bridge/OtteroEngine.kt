@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import uniffi.ottero_mobile_ffi.AccountSessionBundle
 import uniffi.ottero_mobile_ffi.AppInfo
 import uniffi.ottero_mobile_ffi.CalendarEventItem
+import uniffi.ottero_mobile_ffi.FocusSessionItem
 import uniffi.ottero_mobile_ffi.HabitItem
 import uniffi.ottero_mobile_ffi.HolidayItem
 import uniffi.ottero_mobile_ffi.MobileAccountStatus
@@ -30,6 +31,7 @@ import uniffi.ottero_mobile_ffi.MobileVaultStatus
 import uniffi.ottero_mobile_ffi.NoteDetail
 import uniffi.ottero_mobile_ffi.NoteListItem
 import uniffi.ottero_mobile_ffi.OtteroMobile
+import uniffi.ottero_mobile_ffi.ProjectItem
 import uniffi.ottero_mobile_ffi.SyncWsCredentials
 import uniffi.ottero_mobile_ffi.TagCount
 import uniffi.ottero_mobile_ffi.TaskItem
@@ -280,6 +282,69 @@ class OtteroEngine(private val mobile: OtteroMobile) {
 
     fun refreshLocal() {
         _changes.tryEmit(Unit)
+    }
+
+    suspend fun setTaskProject(id: String, projectId: String?): TaskItem =
+        withContext(dbDispatcher) {
+            mobile.setTaskProject(id, projectId).also { notifyMutation() }
+        }
+
+    suspend fun listProjects(): List<ProjectItem> = withContext(dbDispatcher) {
+        mobile.listProjects()
+    }
+
+    suspend fun createProject(name: String): ProjectItem = withContext(dbDispatcher) {
+        mobile.createProject(name).also { notifyMutation() }
+    }
+
+    suspend fun listSubtasks(parentId: String): List<TaskItem> = withContext(dbDispatcher) {
+        mobile.listSubtasks(parentId)
+    }
+
+    suspend fun addSubtask(parentId: String, title: String): TaskItem =
+        withContext(dbDispatcher) {
+            mobile.addSubtask(parentId, title).also { notifyMutation() }
+        }
+
+    suspend fun updateHabit(
+        id: String,
+        name: String,
+        scheduleCode: String,
+        target: Int,
+    ): HabitItem = withContext(dbDispatcher) {
+        mobile.updateHabit(id, name, scheduleCode, target.coerceAtLeast(1).toUShort()).also {
+            notifyMutation()
+        }
+    }
+
+    suspend fun archiveHabit(id: String) = withContext(dbDispatcher) {
+        mobile.archiveHabit(id)
+        notifyMutation()
+    }
+
+    suspend fun deleteHabit(id: String) = withContext(dbDispatcher) {
+        mobile.deleteHabit(id)
+        notifyMutation()
+    }
+
+    suspend fun recordFocusSession(
+        label: String,
+        kindCode: String,
+        plannedSecs: Int,
+        actualSecs: Int,
+        completed: Boolean,
+    ): FocusSessionItem = withContext(dbDispatcher) {
+        mobile.recordFocusSession(
+            label,
+            kindCode,
+            plannedSecs.coerceAtLeast(0).toUInt(),
+            actualSecs.coerceAtLeast(0).toUInt(),
+            completed,
+        ).also { notifyMutation() }
+    }
+
+    suspend fun listTodayFocusSessions(): List<FocusSessionItem> = withContext(dbDispatcher) {
+        mobile.listTodayFocusSessions()
     }
 
     suspend fun vaultStatus(): MobileVaultStatus = withContext(dbDispatcher) {
