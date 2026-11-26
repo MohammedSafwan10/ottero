@@ -51,9 +51,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.EmptyPlaceholder
 import com.nexdark.ottero.core.components.OtteroCard
+import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -80,10 +82,9 @@ private fun priorityLabel(priority: UByte): String? = when (priority.toInt()) {
 fun TasksScreen(
     engine: OtteroEngine,
     contentPadding: PaddingValues,
-    onShowMessage: (String) -> Unit,
-    onShowUndo: (String, suspend () -> Unit) -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
+    val feedback = LocalOtteroFeedback.current
     val haptic = LocalHapticFeedback.current
     val layoutDirection = LocalLayoutDirection.current
     val scope = rememberCoroutineScope()
@@ -97,9 +98,9 @@ fun TasksScreen(
         if (text.isEmpty()) return
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         scope.launch {
-            runCatching { engine.quickAddTask(text, filter == MobileTaskFilter.TODAY) }
+            runSuspendCatching { engine.quickAddTask(text, filter == MobileTaskFilter.TODAY) }
                 .onSuccess { draft = "" }
-                .onFailure { onShowMessage(it.message ?: "Could not add task") }
+                .onFailure { feedback.error(it.message ?: "Could not add task") }
         }
     }
 
@@ -108,14 +109,14 @@ fun TasksScreen(
             snapshotFlow { filter },
             engine.changes.onStart { emit(Unit) },
         ) { currentFilter, _ -> currentFilter }.collectLatest { currentFilter ->
-            runCatching { engine.listTasks(currentFilter) }
+            runSuspendCatching { engine.listTasks(currentFilter) }
                 .onSuccess {
                     tasks = it
                     isLoading = false
                 }
                 .onFailure {
                     isLoading = false
-                    onShowMessage(it.message ?: "Could not load tasks")
+                    feedback.error(it.message ?: "Could not load tasks")
                 }
         }
     }
@@ -127,19 +128,11 @@ fun TasksScreen(
         contentPadding = PaddingValues(
             start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
             end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
-            top = contentPadding.calculateTopPadding() + 16.dp,
+            top = contentPadding.calculateTopPadding() + 8.dp,
             bottom = contentPadding.calculateBottomPadding() + 88.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "tasks-title", contentType = "header") {
-            Text(
-                text = "Tasks",
-                style = MaterialTheme.typography.headlineMedium,
-                color = palette.ink,
-            )
-        }
-
         item(key = "tasks-filters", contentType = "filters") {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(
@@ -216,8 +209,8 @@ fun TasksScreen(
                             ) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 scope.launch {
-                                    runCatching { engine.toggleTaskDone(task.id) }
-                                        .onFailure { onShowMessage(it.message ?: "Could not update task") }
+                                    runSuspendCatching { engine.toggleTaskDone(task.id) }
+                                        .onFailure { feedback.error(it.message ?: "Could not update task") }
                                 }
                             },
                         verticalAlignment = Alignment.CenterVertically,
@@ -257,13 +250,13 @@ fun TasksScreen(
                         IconButton(
                             onClick = {
                                 scope.launch {
-                                    runCatching { engine.trashTask(task.id) }
+                                    runSuspendCatching { engine.trashTask(task.id) }
                                         .onSuccess {
-                                            onShowUndo("Task moved to trash") {
+                                            feedback.undo("Task moved to trash") {
                                                 engine.restoreTask(task.id)
                                             }
                                         }
-                                        .onFailure { onShowMessage(it.message ?: "Could not trash task") }
+                                        .onFailure { feedback.error(it.message ?: "Could not trash task") }
                                 }
                             },
                             modifier = Modifier.size(48.dp),

@@ -58,9 +58,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.EmptyPlaceholder
 import com.nexdark.ottero.core.components.OtteroCard
+import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
+import com.nexdark.ottero.core.feedback.OtteroSnackbarHost
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -77,9 +80,10 @@ fun NotesListScreen(
     engine: OtteroEngine,
     contentPadding: PaddingValues,
     onOpenNote: (String) -> Unit,
-    onShowMessage: (String) -> Unit,
+    onCreateNote: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
+    val feedback = LocalOtteroFeedback.current
     val layoutDirection = LocalLayoutDirection.current
     var query by rememberSaveable { mutableStateOf("") }
     var notes by remember { mutableStateOf<List<NoteListItem>>(emptyList()) }
@@ -90,14 +94,14 @@ fun NotesListScreen(
             snapshotFlow { query }.debounce(150),
             engine.changes.onStart { emit(Unit) },
         ) { q, _ -> q }.collectLatest { q ->
-            runCatching { engine.listNotes(q.ifBlank { null }) }
+            runSuspendCatching { engine.listNotes(q.ifBlank { null }) }
                 .onSuccess {
                     notes = it
                     isLoading = false
                 }
                 .onFailure {
                     isLoading = false
-                    onShowMessage(it.message ?: "Could not load notes")
+                    feedback.error(it.message ?: "Could not load notes")
                 }
         }
     }
@@ -109,19 +113,11 @@ fun NotesListScreen(
         contentPadding = PaddingValues(
             start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
             end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
-            top = contentPadding.calculateTopPadding() + 16.dp,
+            top = contentPadding.calculateTopPadding() + 8.dp,
             bottom = contentPadding.calculateBottomPadding() + 88.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "notes-title", contentType = "header") {
-            Text(
-                text = "Notes",
-                style = MaterialTheme.typography.headlineMedium,
-                color = palette.ink,
-            )
-        }
-
         item(key = "notes-search", contentType = "search") {
             OutlinedTextField(
                 value = query,
@@ -167,7 +163,9 @@ fun NotesListScreen(
                     EmptyPlaceholder(
                         icon = Icons.Outlined.Description,
                         title = if (query.isBlank()) "No notes yet" else "No matches",
-                        hint = if (query.isBlank()) "Tap + to write your first note." else "Try fewer or different words.",
+                        hint = if (query.isBlank()) "Write your first note." else "Try fewer or different words.",
+                        actionLabel = if (query.isBlank()) "New note" else null,
+                        onAction = if (query.isBlank()) onCreateNote else null,
                     )
                 }
             }
@@ -218,11 +216,11 @@ fun NoteEditorScreen(
     engine: OtteroEngine,
     noteId: String,
     isNewNote: Boolean,
-    onShowMessage: (String) -> Unit,
     onTrashed: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
+    val feedback = LocalOtteroFeedback.current
     val scope = rememberCoroutineScope()
 
     var title by rememberSaveable(noteId) { mutableStateOf("") }
@@ -237,7 +235,7 @@ fun NoteEditorScreen(
 
     LaunchedEffect(noteId) {
         if (loaded) return@LaunchedEffect
-        runCatching { engine.getNote(noteId) }
+        runSuspendCatching { engine.getNote(noteId) }
             .onSuccess { detail ->
                 val initialTitle = if (detail.title == "Untitled") "" else detail.title
                 title = initialTitle
@@ -248,24 +246,22 @@ fun NoteEditorScreen(
                 loaded = true
             }
             .onFailure {
-                onShowMessage(it.message ?: "Could not open note")
+                feedback.error(it.message ?: "Could not open note")
                 onBack()
             }
     }
 
-    // Debounced 500 ms autosave matching Desktop NotesView; skipped when clean.
     LaunchedEffect(loaded, title, body) {
         if (!loaded || (title == lastSavedTitle && body == lastSavedBody)) return@LaunchedEffect
         delay(500)
-        runCatching { engine.updateNote(noteId, title, body) }
+        runSuspendCatching { engine.updateNote(noteId, title, body) }
             .onSuccess {
                 lastSavedTitle = title
                 lastSavedBody = body
             }
-            .onFailure { onShowMessage(it.message ?: "Could not save note") }
+            .onFailure { feedback.error(it.message ?: "Could not save note") }
     }
 
-    // Flush dirty edits on app background/stop via application-scoped dispatcher.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         if (isDirty) {
             engine.flushNoteAsync(noteId, title, body)
@@ -279,14 +275,14 @@ fun NoteEditorScreen(
         isClosing = true
         scope.launch {
             if (loaded && isNewNote && title.isBlank() && body.isBlank()) {
-                runCatching { engine.trashNote(noteId) }
+                runSuspendCatching { engine.trashNote(noteId) }
             } else if (isDirty) {
-                runCatching { engine.updateNote(noteId, title, body) }
+                runSuspendCatching { engine.updateNote(noteId, title, body) }
                     .onSuccess {
                         lastSavedTitle = title
                         lastSavedBody = body
                     }
-                    .onFailure { onShowMessage(it.message ?: "Could not save note") }
+                    .onFailure { feedback.error(it.message ?: "Could not save note") }
             }
             onBack()
         }
@@ -298,6 +294,7 @@ fun NoteEditorScreen(
 
     Scaffold(
         containerColor = palette.canvas,
+        snackbarHost = { OtteroSnackbarHost(feedback) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -322,10 +319,10 @@ fun NoteEditorScreen(
                             val next = !previous
                             pinned = next
                             scope.launch {
-                                runCatching { engine.setNotePinned(noteId, next) }
+                                runSuspendCatching { engine.setNotePinned(noteId, next) }
                                     .onFailure {
                                         pinned = previous
-                                        onShowMessage(it.message ?: "Could not update pin")
+                                        feedback.error(it.message ?: "Could not update pin")
                                     }
                             }
                         },
@@ -342,11 +339,11 @@ fun NoteEditorScreen(
                             if (isClosing) return@IconButton
                             isClosing = true
                             scope.launch {
-                                runCatching { engine.trashNote(noteId) }
+                                runSuspendCatching { engine.trashNote(noteId) }
                                     .onSuccess { onTrashed(noteId) }
                                     .onFailure {
                                         isClosing = false
-                                        onShowMessage(it.message ?: "Could not trash note")
+                                        feedback.error(it.message ?: "Could not trash note")
                                     }
                             }
                         },

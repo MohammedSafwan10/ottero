@@ -43,11 +43,15 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.EmptyPlaceholder
 import com.nexdark.ottero.core.components.OtteroCard
 import com.nexdark.ottero.core.components.SectionHeader
+import com.nexdark.ottero.core.feedback.LocalOtteroFeedback
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import uniffi.ottero_mobile_ffi.HabitItem
 import uniffi.ottero_mobile_ffi.NoteListItem
@@ -63,24 +67,24 @@ fun TodayScreen(
     contentPadding: PaddingValues,
     onOpenTasks: () -> Unit,
     onOpenNotes: () -> Unit,
+    onOpenHabits: () -> Unit,
     onOpenNote: (String) -> Unit,
-    onShowMessage: (String) -> Unit,
+    onCreateNote: () -> Unit,
+    onAddTask: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
+    val feedback = LocalOtteroFeedback.current
     val haptic = LocalHapticFeedback.current
     val layoutDirection = LocalLayoutDirection.current
     val scope = rememberCoroutineScope()
     var snapshot by remember { mutableStateOf<TodaySnapshot?>(null) }
 
-    suspend fun reload() {
-        runCatching { engine.todaySnapshot() }
-            .onSuccess { snapshot = it }
-            .onFailure { onShowMessage(it.message ?: "Could not load today") }
-    }
-
     LaunchedEffect(engine) {
-        reload()
-        engine.changes.collect { reload() }
+        engine.changes.onStart { emit(Unit) }.collectLatest {
+            runSuspendCatching { engine.todaySnapshot() }
+                .onSuccess { snapshot = it }
+                .onFailure { feedback.error(it.message ?: "Could not load today") }
+        }
     }
 
     val dateKey = snapshot?.dateIso
@@ -101,7 +105,7 @@ fun TodayScreen(
         contentPadding = PaddingValues(
             start = contentPadding.calculateStartPadding(layoutDirection) + 16.dp,
             end = contentPadding.calculateEndPadding(layoutDirection) + 16.dp,
-            top = contentPadding.calculateTopPadding() + 16.dp,
+            top = contentPadding.calculateTopPadding() + 8.dp,
             bottom = contentPadding.calculateBottomPadding() + 88.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -145,6 +149,8 @@ fun TodayScreen(
                             icon = Icons.Outlined.TaskAlt,
                             title = "All caught up",
                             hint = "Nothing is due today.",
+                            actionLabel = "Add a task",
+                            onAction = onAddTask,
                         )
                     }
                 }
@@ -159,8 +165,8 @@ fun TodayScreen(
                         onToggle = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             scope.launch {
-                                runCatching { engine.toggleTaskDone(task.id) }
-                                    .onFailure { onShowMessage(it.message ?: "Could not update task") }
+                                runSuspendCatching { engine.toggleTaskDone(task.id) }
+                                    .onFailure { feedback.error(it.message ?: "Could not update task") }
                             }
                         },
                     )
@@ -170,7 +176,11 @@ fun TodayScreen(
             if (snap.habits.isNotEmpty()) {
                 item(key = "habits-header", contentType = "section_header") {
                     Spacer(Modifier.height(4.dp))
-                    SectionHeader(title = "Habits")
+                    SectionHeader(
+                        title = "Habits",
+                        actionLabel = "All habits",
+                        onAction = onOpenHabits,
+                    )
                 }
 
                 items(
@@ -183,8 +193,8 @@ fun TodayScreen(
                         onTap = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             scope.launch {
-                                runCatching { engine.tapHabitToday(habit.id) }
-                                    .onFailure { onShowMessage(it.message ?: "Could not log habit") }
+                                runSuspendCatching { engine.tapHabitToday(habit.id) }
+                                    .onFailure { feedback.error(it.message ?: "Could not log habit") }
                             }
                         },
                     )
@@ -206,7 +216,9 @@ fun TodayScreen(
                         EmptyPlaceholder(
                             icon = Icons.Outlined.Description,
                             title = "No notes yet",
-                            hint = "Create a note from the Notes tab.",
+                            hint = "Capture ideas, meeting notes, or journal entries.",
+                            actionLabel = "New note",
+                            onAction = onCreateNote,
                         )
                     }
                 }
