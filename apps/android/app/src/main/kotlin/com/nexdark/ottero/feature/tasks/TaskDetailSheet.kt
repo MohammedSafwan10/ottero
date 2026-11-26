@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -151,8 +153,25 @@ fun TaskDetailSheet(
                 style = MaterialTheme.typography.labelMedium,
                 color = palette.muted,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                datePresets.forEach { (iso, label) ->
+            val hasCustomDue = dueDate != null && datePresets.none { it.first == dueDate }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (hasCustomDue) {
+                    item(key = "due-custom") {
+                        FilterChip(
+                            selected = true,
+                            onClick = { dueDate = null },
+                            label = { Text(dueDate.orEmpty()) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = palette.ink,
+                                selectedLabelColor = palette.card,
+                            ),
+                        )
+                    }
+                }
+                items(
+                    items = datePresets,
+                    key = { it.second },
+                ) { (iso, label) ->
                     FilterChip(
                         selected = dueDate == iso,
                         onClick = { dueDate = iso },

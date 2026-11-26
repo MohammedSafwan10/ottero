@@ -65,11 +65,11 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import uniffi.ottero_mobile_ffi.CalendarEventItem
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.TemporalAdjusters
+import java.time.temporal.WeekFields
 import java.util.Locale
 
 @Composable
@@ -92,8 +92,9 @@ fun CalendarScreen(
     val selectedDate = remember(selectedIso) {
         runCatching { LocalDate.parse(selectedIso) }.getOrDefault(today)
     }
-    val weekStart = remember(selectedDate) {
-        selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val firstDayOfWeek = remember { WeekFields.of(Locale.getDefault()).firstDayOfWeek }
+    val weekStart = remember(selectedDate, firstDayOfWeek) {
+        selectedDate.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
     }
     val weekDays = remember(weekStart) {
         (0L..6L).map { weekStart.plusDays(it) }

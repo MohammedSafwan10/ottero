@@ -17,12 +17,16 @@ import uniffi.ottero_mobile_ffi.AppInfo
 import uniffi.ottero_mobile_ffi.CalendarEventItem
 import uniffi.ottero_mobile_ffi.HabitItem
 import uniffi.ottero_mobile_ffi.MobileTaskFilter
+import uniffi.ottero_mobile_ffi.MobileVaultStatus
 import uniffi.ottero_mobile_ffi.NoteDetail
 import uniffi.ottero_mobile_ffi.NoteListItem
 import uniffi.ottero_mobile_ffi.OtteroMobile
 import uniffi.ottero_mobile_ffi.TagCount
 import uniffi.ottero_mobile_ffi.TaskItem
 import uniffi.ottero_mobile_ffi.TodaySnapshot
+import uniffi.ottero_mobile_ffi.TotpCodeSnapshot
+import uniffi.ottero_mobile_ffi.VaultEntryDetail
+import uniffi.ottero_mobile_ffi.VaultEntrySummary
 import java.io.File
 
 /**
@@ -169,6 +173,74 @@ class OtteroEngine(private val mobile: OtteroMobile) {
     suspend fun restoreEvent(id: String) = withContext(dbDispatcher) {
         mobile.restoreEvent(id)
         _changes.tryEmit(Unit)
+    }
+
+    suspend fun vaultStatus(): MobileVaultStatus = withContext(dbDispatcher) {
+        mobile.vaultStatus()
+    }
+
+    /** Argon2id derivation runs on [Dispatchers.Default] without blocking [dbDispatcher]. */
+    suspend fun vaultSetup(masterPassword: String) = withContext(Dispatchers.Default) {
+        mobile.vaultSetup(masterPassword)
+        _changes.tryEmit(Unit)
+    }
+
+    /** Argon2id derivation runs on [Dispatchers.Default] without blocking [dbDispatcher]. */
+    suspend fun vaultUnlock(masterPassword: String) = withContext(Dispatchers.Default) {
+        mobile.vaultUnlock(masterPassword)
+        _changes.tryEmit(Unit)
+    }
+
+    /** Immediate non-queued lock so backgrounding never waits behind SQLite or Argon2id. */
+    fun lockVaultNow() {
+        runCatching { mobile.vaultLock() }
+        _changes.tryEmit(Unit)
+    }
+
+    suspend fun vaultLock() = withContext(Dispatchers.Default) {
+        mobile.vaultLock()
+        _changes.tryEmit(Unit)
+    }
+
+    suspend fun vaultListItems(query: String? = null): List<VaultEntrySummary> =
+        withContext(dbDispatcher) {
+            mobile.vaultListItems(query)
+        }
+
+    suspend fun vaultGetItem(id: String): VaultEntryDetail = withContext(dbDispatcher) {
+        mobile.vaultGetItem(id)
+    }
+
+    suspend fun vaultSaveLogin(
+        id: String?,
+        title: String,
+        username: String,
+        password: String,
+        url: String,
+        totpSecret: String,
+        notes: String,
+    ): VaultEntryDetail = withContext(dbDispatcher) {
+        mobile.vaultSaveLogin(id, title, username, password, url, totpSecret, notes).also {
+            _changes.tryEmit(Unit)
+        }
+    }
+
+    suspend fun vaultTrashItem(id: String) = withContext(dbDispatcher) {
+        mobile.vaultTrashItem(id)
+        _changes.tryEmit(Unit)
+    }
+
+    suspend fun vaultRestoreItem(id: String) = withContext(dbDispatcher) {
+        mobile.vaultRestoreItem(id)
+        _changes.tryEmit(Unit)
+    }
+
+    suspend fun vaultGeneratePassword(length: Int = 20): String = withContext(Dispatchers.Default) {
+        mobile.vaultGeneratePassword(length.toUByte())
+    }
+
+    suspend fun vaultTotpNow(secret: String): TotpCodeSnapshot = withContext(Dispatchers.Default) {
+        mobile.vaultTotpNow(secret)
     }
 
     companion object {

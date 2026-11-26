@@ -13,6 +13,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -76,7 +78,10 @@ private fun FormatChip(
     onClick: () -> Unit,
 ) {
     val palette = LocalOtteroPalette.current
-    TextButton(onClick = onClick) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.semantics { this.contentDescription = contentDescription },
+    ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,

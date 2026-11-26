@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 jiff.workspace = true
 ottero-core.workspace = true
+ottero-crypto.workspace = true
 ottero-storage.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true

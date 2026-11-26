@@ -81,3 +81,41 @@ pub struct CalendarEventItem {
     pub end_time: Option<String>,
     pub all_day: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MobileVaultStatus {
+    NotSetUp,
+    Locked,
+    Unlocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct VaultEntrySummary {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub subtitle: String,
+    pub has_totp: bool,
+    pub favorite: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct VaultEntryDetail {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub username: String,
+    pub password: String,
+    pub url: String,
+    pub totp_secret: String,
+    pub notes: String,
+    pub favorite: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TotpCodeSnapshot {
+    pub code: String,
+    pub grouped: String,
+    pub seconds_left: u32,
+    pub period: u32,
+}

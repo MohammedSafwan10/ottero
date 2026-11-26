@@ -83,20 +83,20 @@ Ottero is an all-in-one personal workspace (Today, Notes, Tasks, Calendar, Habit
 - [x] **Focus / Pomodoro Timer:**
   - `FocusScreen` with Focus (25m) / Short break (5m) / Long break (15m) presets, tabular countdown ring, and haptics on completion.
 
-### Phase 5 — Passwords Vault & Native Biometric Security
-- [ ] **Vault Bridge (`crates/mobile-ffi/src/vault.rs`):**
-  - Expose `ottero-crypto` + `Store` vault setup, unlock, lock, item CRUD, TOTP live 6-digit code generator, password generator, and auto-lock timeout.
-- [ ] **Android Biometric Unlock:**
-  - `BiometricPrompt` + Android Keystore (`AES-GCM` hardware-backed key wrapping) for instant fingerprint/face unlock, with master-password / Ottero account fallback.
-- [ ] **FLAG_SECURE & Clipboard Hygiene:**
-  - Set `WindowManager.LayoutParams.FLAG_SECURE` while Passwords Vault is open (blocks screenshots & recents preview) and mark copied passwords `ClipDescription.EXTRA_IS_SENSITIVE = true` with 30s auto-clear.
-- [ ] **Android System `AutofillService`:**
-  - Native OS password & TOTP autofill across Chrome and all Android apps, calling `crates/mobile-ffi` directly in-process.
+### Phase 5 — Passwords Vault & Native Security (Core Done + Audited)
+- [x] **Vault Bridge (`crates/mobile-ffi/src/vault.rs`):**
+  - Desktop-compatible `ottero-crypto` Argon2id + XChaCha20-Poly1305 vault setup, unlock (lock-free Argon2id with `epoch` race guard), immediate lock, search/list (skips corrupt rows), Login CRUD (preserves extra URLs/tags/custom fields), trash/restore, CSPRNG password generator, and live RFC 6238 TOTP codes.
+- [x] **Android Vault UI & Hardening (`feature/passwords/` + `core/security/`):**
+  - `FLAG_SECURE` on both Activity window and `VaultItemSheet` (`ModalBottomSheetProperties(securePolicy = SecureFlagPolicy.SecureOn)`), RAM-only secret state (no `rememberSaveable` Bundle leaks), `KeyboardType.Password` + `autoCorrectEnabled = false`, app-wide `ON_STOP` instant background auto-lock, and `SensitiveClipboard` (`EXTRA_IS_SENSITIVE` + timestamp-checked 30s auto-clear).
+- [ ] **Phase 5b (Optional Native Extras):** `BiometricPrompt` + Android Keystore key wrapping, Card/Secure Note/Custom Field editors, and Android system `AutofillService`.
 
-### Phase 6 — Ottero Cloud Account & Live E2EE Sync
+### Phase 6 — Ottero Cloud Account & Live E2EE Sync (Next)
+- [ ] **Sync Prerequisites (from Phases 0–5 Audit):**
+  - Wire `record_sync` outbox writes across `crates/mobile-ffi` mutations (`notes`, `tasks`, `habits`, `calendar`, `vault`).
+  - Support account-linked vault unlock (`meta.account` / `ottero_crypto::vault_link::unwrap_vault_key`) + vault recovery key generation (`RECOVERY_AAD`) so Cloud-linked Desktop vaults open seamlessly on Android.
 - [ ] **Shared Rust Sync Engine (`crates/mobile-ffi/src/sync.rs`):**
-  - Expose Account sign-in (email + password + Secret Key + TOTP 2FA), Emergency Kit export, E2EE pull/push (`crates/sync-protocol`), and WebSocket live push.
-  - Store session tokens in hardware-backed EncryptedSharedPreferences / Android Keystore (never plain prefs).
+  - Expose Account sign-in (email + password + Secret Key + TOTP 2FA), E2EE pull/push (`crates/sync-protocol`), and WebSocket live push.
+  - Store session tokens in hardware-backed Android Keystore (never plain prefs).
 - [ ] **Background Sync (`WorkManager`):**
   - Periodic + connectivity-aware background sync + instant foreground sync on app resume, so edits made on Desktop appear on Android in <1 second and vice versa.
 

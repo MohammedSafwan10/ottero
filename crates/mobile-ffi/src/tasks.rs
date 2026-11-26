@@ -65,6 +65,9 @@ pub(crate) fn quick_add_task(
     if due.is_some() {
         task.set_due(due, now)?;
     }
+    if let Some(rule) = parsed.recurrence {
+        task.set_recurrence(Some(rule), today, now)?;
+    }
     store.save_task(&task)?;
     Ok(task_to_dto(&task, today))
 }
@@ -76,12 +79,17 @@ pub(crate) fn toggle_task_done(store: &mut Store, id: &str) -> Result<TaskItem, 
     let mut task = store.task(task_id)?.ok_or_else(|| MobileError::NotFound {
         reason: "Task not found".into(),
     })?;
-    let next = if task.status().is_open() {
+    let completing = task.status().is_open();
+    let next = if completing {
         TaskStatus::Done
     } else {
         TaskStatus::Todo
     };
     task.transition(next, now)?;
+    if completing && let Some(next_task) = task.next_occurrence(today, now) {
+        task.clear_recurrence_quietly();
+        store.save_task(&next_task)?;
+    }
     store.save_task(&task)?;
     Ok(task_to_dto(&task, today))
 }

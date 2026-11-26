@@ -1,5 +1,6 @@
 package com.nexdark.ottero.feature.focus
 
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,10 +26,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,14 +48,73 @@ import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-private enum class FocusPreset(val label: String, val seconds: Int) {
+enum class FocusPreset(val label: String, val seconds: Int) {
     Focus("Focus", 25 * 60),
     ShortBreak("Short break", 5 * 60),
     LongBreak("Long break", 15 * 60),
 }
 
+/**
+ * Wall-clock backed focus timer state hoisted above tab navigation so switching
+ * tabs or backgrounding the app never drifts or resets an active session.
+ */
+@Stable
+class FocusTimerState {
+    var preset by mutableStateOf(FocusPreset.Focus)
+        private set
+    var remainingSeconds by mutableIntStateOf(FocusPreset.Focus.seconds)
+        private set
+    var running by mutableStateOf(false)
+        private set
+    private var endElapsedMs by mutableLongStateOf(0L)
+
+    fun selectPreset(next: FocusPreset) {
+        running = false
+        preset = next
+        remainingSeconds = next.seconds
+        endElapsedMs = 0L
+    }
+
+    fun toggle() {
+        if (running) {
+            syncNow()
+            running = false
+            endElapsedMs = 0L
+        } else {
+            if (remainingSeconds <= 0) {
+                remainingSeconds = preset.seconds
+            }
+            endElapsedMs = SystemClock.elapsedRealtime() + remainingSeconds * 1000L
+            running = true
+        }
+    }
+
+    fun reset() {
+        running = false
+        remainingSeconds = preset.seconds
+        endElapsedMs = 0L
+    }
+
+    /** Returns true if the timer just finished on this tick. */
+    fun syncNow(): Boolean {
+        if (!running) return false
+        val leftMs = (endElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        remainingSeconds = ((leftMs + 999L) / 1000L).toInt()
+        if (leftMs == 0L) {
+            running = false
+            endElapsedMs = 0L
+            return true
+        }
+        return false
+    }
+}
+
+@Composable
+fun rememberFocusTimerState(): FocusTimerState = remember { FocusTimerState() }
+
 @Composable
 fun FocusScreen(
+    timer: FocusTimerState,
     contentPadding: PaddingValues,
 ) {
     val palette = LocalOtteroPalette.current
@@ -60,27 +122,22 @@ fun FocusScreen(
     val haptic = LocalHapticFeedback.current
     val layoutDirection = LocalLayoutDirection.current
 
-    var preset by rememberSaveable { mutableStateOf(FocusPreset.Focus) }
-    var remainingSeconds by rememberSaveable { mutableIntStateOf(FocusPreset.Focus.seconds) }
-    var running by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(running, preset) {
-        if (!running) return@LaunchedEffect
-        while (running && remainingSeconds > 0) {
-            delay(1000L)
-            remainingSeconds -= 1
-        }
-        if (running && remainingSeconds <= 0) {
-            running = false
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            feedback.info("${preset.label} finished")
+    LaunchedEffect(timer.running) {
+        if (!timer.running) return@LaunchedEffect
+        while (timer.running) {
+            if (timer.syncNow()) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                feedback.info("${timer.preset.label} finished")
+                break
+            }
+            delay(250L)
         }
     }
 
-    val total = preset.seconds.coerceAtLeast(1)
-    val progress = (remainingSeconds.toFloat() / total.toFloat()).coerceIn(0f, 1f)
-    val mins = remainingSeconds / 60
-    val secs = remainingSeconds % 60
+    val total = timer.preset.seconds.coerceAtLeast(1)
+    val progress = (timer.remainingSeconds.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    val mins = timer.remainingSeconds / 60
+    val secs = timer.remainingSeconds % 60
     val timeText = String.format(Locale.US, "%02d:%02d", mins, secs)
 
     Column(
@@ -101,12 +158,8 @@ fun FocusScreen(
         ) {
             FocusPreset.entries.forEach { item ->
                 FilterChip(
-                    selected = preset == item,
-                    onClick = {
-                        running = false
-                        preset = item
-                        remainingSeconds = item.seconds
-                    },
+                    selected = timer.preset == item,
+                    onClick = { timer.selectPreset(item) },
                     label = { Text(item.label) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = palette.ink,
@@ -157,12 +210,7 @@ fun FocusScreen(
             horizontalArrangement = Arrangement.Center,
         ) {
             Button(
-                onClick = {
-                    if (remainingSeconds <= 0) {
-                        remainingSeconds = preset.seconds
-                    }
-                    running = !running
-                },
+                onClick = timer::toggle,
                 modifier = Modifier
                     .height(50.dp)
                     .width(148.dp),
@@ -173,7 +221,7 @@ fun FocusScreen(
                 ),
             ) {
                 Text(
-                    text = if (running) "Pause" else "Start",
+                    text = if (timer.running) "Pause" else "Start",
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
@@ -181,10 +229,7 @@ fun FocusScreen(
             Spacer(Modifier.width(12.dp))
 
             OutlinedButton(
-                onClick = {
-                    running = false
-                    remainingSeconds = preset.seconds
-                },
+                onClick = timer::reset,
                 modifier = Modifier.height(50.dp),
                 shape = RoundedCornerShape(14.dp),
             ) {

@@ -8,24 +8,28 @@ mod habits;
 mod notes;
 mod tasks;
 mod today;
+mod vault;
 
 use std::path::Path;
 use std::sync::Mutex;
 
 use ottero_storage::Store;
+use vault::VaultKeyState;
 
 pub use dto::{
-    AppInfo, CalendarEventItem, HabitItem, MobileTaskFilter, NoteDetail, NoteListItem, TagCount,
-    TaskItem, TodaySnapshot,
+    AppInfo, CalendarEventItem, HabitItem, MobileTaskFilter, MobileVaultStatus, NoteDetail,
+    NoteListItem, TagCount, TaskItem, TodaySnapshot, TotpCodeSnapshot, VaultEntryDetail,
+    VaultEntrySummary,
 };
 pub use error::MobileError;
 
 uniffi::setup_scaffolding!();
 
-/// Thread-safe handle to a local Ottero SQLite store.
+/// Thread-safe handle to a local Ottero SQLite store and in-memory vault key.
 #[derive(uniffi::Object)]
 pub struct OtteroMobile {
     store: Mutex<Store>,
+    vault_key: Mutex<VaultKeyState>,
 }
 
 #[uniffi::export]
@@ -36,6 +40,7 @@ impl OtteroMobile {
         let store = Store::open(Path::new(&db_path))?;
         Ok(Self {
             store: Mutex::new(store),
+            vault_key: Mutex::new(VaultKeyState::new()),
         })
     }
 
@@ -45,6 +50,7 @@ impl OtteroMobile {
         let store = Store::open_in_memory()?;
         Ok(Self {
             store: Mutex::new(store),
+            vault_key: Mutex::new(VaultKeyState::new()),
         })
     }
 
@@ -204,11 +210,96 @@ impl OtteroMobile {
         let mut store = self.lock()?;
         calendar::restore_event(&mut store, &id)
     }
+
+    pub fn vault_status(&self) -> Result<MobileVaultStatus, MobileError> {
+        let store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::status(&store, &key)
+    }
+
+    pub fn vault_setup(&self, master_password: String) -> Result<(), MobileError> {
+        vault::setup(&self.store, &self.vault_key, master_password)
+    }
+
+    pub fn vault_unlock(&self, master_password: String) -> Result<(), MobileError> {
+        vault::unlock(&self.store, &self.vault_key, master_password)
+    }
+
+    pub fn vault_lock(&self) -> Result<(), MobileError> {
+        let mut key = self.lock_vault()?;
+        vault::lock(&mut key);
+        Ok(())
+    }
+
+    pub fn vault_list_items(
+        &self,
+        query: Option<String>,
+    ) -> Result<Vec<VaultEntrySummary>, MobileError> {
+        let store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::list_items(&store, &key, query)
+    }
+
+    pub fn vault_get_item(&self, id: String) -> Result<VaultEntryDetail, MobileError> {
+        let store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::get_item(&store, &key, &id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn vault_save_login(
+        &self,
+        id: Option<String>,
+        title: String,
+        username: String,
+        password: String,
+        url: String,
+        totp_secret: String,
+        notes: String,
+    ) -> Result<VaultEntryDetail, MobileError> {
+        let mut store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::save_login(
+            &mut store,
+            &key,
+            id,
+            title,
+            username,
+            password,
+            url,
+            totp_secret,
+            notes,
+        )
+    }
+
+    pub fn vault_trash_item(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::trash_item(&mut store, &key, &id)
+    }
+
+    pub fn vault_restore_item(&self, id: String) -> Result<(), MobileError> {
+        let mut store = self.lock()?;
+        let key = self.lock_vault()?;
+        vault::restore_item(&mut store, &key, &id)
+    }
+
+    pub fn vault_generate_password(&self, length: u8) -> Result<String, MobileError> {
+        vault::generate_password(length)
+    }
+
+    pub fn vault_totp_now(&self, secret: String) -> Result<TotpCodeSnapshot, MobileError> {
+        vault::totp_now(&secret)
+    }
 }
 
 impl OtteroMobile {
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Store>, MobileError> {
         self.store.lock().map_err(|_| MobileError::LockPoisoned)
+    }
+
+    fn lock_vault(&self) -> Result<std::sync::MutexGuard<'_, VaultKeyState>, MobileError> {
+        self.vault_key.lock().map_err(|_| MobileError::LockPoisoned)
     }
 }
 
@@ -318,5 +409,54 @@ mod tests {
                 .len(),
             1
         );
+
+        // Passwords Vault end-to-end (setup, save, lock, wrong pw rejected, unlock, TOTP, trash/restore)
+        assert_eq!(
+            app.vault_status().expect("status"),
+            MobileVaultStatus::NotSetUp
+        );
+        app.vault_setup("correct horse battery staple".into())
+            .expect("setup");
+        assert_eq!(
+            app.vault_status().expect("status"),
+            MobileVaultStatus::Unlocked
+        );
+        let generated = app.vault_generate_password(20).expect("generate");
+        assert_eq!(generated.len(), 20);
+        let saved = app
+            .vault_save_login(
+                None,
+                "GitHub".into(),
+                "safwan".into(),
+                generated.clone(),
+                "https://github.com".into(),
+                "JBSWY3DPEHPK3PXP".into(),
+                "".into(),
+            )
+            .expect("save login");
+        assert_eq!(saved.title, "GitHub");
+        assert_eq!(
+            app.vault_list_items(Some("git".into()))
+                .expect("list")
+                .len(),
+            1
+        );
+        let totp = app.vault_totp_now("JBSWY3DPEHPK3PXP".into()).expect("totp");
+        assert_eq!(totp.code.len(), 6);
+
+        app.vault_lock().expect("lock");
+        assert_eq!(
+            app.vault_status().expect("status"),
+            MobileVaultStatus::Locked
+        );
+        assert!(app.vault_unlock("wrong-password".into()).is_err());
+        app.vault_unlock("correct horse battery staple".into())
+            .expect("unlock");
+        let reopened = app.vault_get_item(saved.id.clone()).expect("get");
+        assert_eq!(reopened.password, generated);
+        app.vault_trash_item(saved.id.clone()).expect("trash");
+        assert!(app.vault_list_items(None).expect("list").is_empty());
+        app.vault_restore_item(saved.id).expect("restore");
+        assert_eq!(app.vault_list_items(None).expect("list").len(), 1);
     }
 }

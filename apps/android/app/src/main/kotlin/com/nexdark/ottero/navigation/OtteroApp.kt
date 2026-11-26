@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Spa
 import androidx.compose.material.icons.outlined.Timer
@@ -63,6 +64,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.nexdark.ottero.R
 import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
@@ -73,9 +76,12 @@ import com.nexdark.ottero.feature.calendar.CalendarScreen
 import com.nexdark.ottero.feature.capture.CaptureKind
 import com.nexdark.ottero.feature.capture.QuickCaptureSheet
 import com.nexdark.ottero.feature.focus.FocusScreen
+import com.nexdark.ottero.feature.focus.FocusTimerState
+import com.nexdark.ottero.feature.focus.rememberFocusTimerState
 import com.nexdark.ottero.feature.habits.HabitsScreen
 import com.nexdark.ottero.feature.notes.NoteEditorScreen
 import com.nexdark.ottero.feature.notes.NotesListScreen
+import com.nexdark.ottero.feature.passwords.PasswordsScreen
 import com.nexdark.ottero.feature.settings.SettingsScreen
 import com.nexdark.ottero.feature.tasks.TasksScreen
 import com.nexdark.ottero.feature.today.TodayScreen
@@ -95,6 +101,7 @@ private enum class Destination(
     Habits("Habits", Icons.Outlined.Spa, true),
     Calendar("Calendar", Icons.Outlined.CalendarToday, false),
     Focus("Focus", Icons.Outlined.Timer, false),
+    Passwords("Passwords", Icons.Outlined.Key, false),
     Trash("Trash", Icons.Outlined.DeleteOutline, false),
 }
 
@@ -117,6 +124,12 @@ fun OtteroApp(
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var captureSheetKind by rememberSaveable { mutableStateOf<CaptureKind?>(null) }
     var isCreatingNote by remember { mutableStateOf(false) }
+    val focusTimer = rememberFocusTimerState()
+
+    // Lock vault whenever the app is backgrounded, regardless of which tab is active.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        engine.lockVaultNow()
+    }
 
     fun createAndOpenNote() {
         if (isCreatingNote) return
@@ -284,6 +297,7 @@ fun OtteroApp(
                         DestinationContent(
                             destination = destination,
                             engine = engine,
+                            focusTimer = focusTimer,
                             contentPadding = innerPadding,
                             onSelectDestination = { destination = it },
                             onOpenNote = { id ->
@@ -437,6 +451,7 @@ fun OtteroApp(
                     DestinationContent(
                         destination = destination,
                         engine = engine,
+                        focusTimer = focusTimer,
                         contentPadding = innerPadding,
                         onSelectDestination = { destination = it },
                         onOpenNote = { id ->
@@ -480,6 +495,7 @@ private fun DrawerRow(
 private fun DestinationContent(
     destination: Destination,
     engine: OtteroEngine,
+    focusTimer: FocusTimerState,
     contentPadding: PaddingValues,
     onSelectDestination: (Destination) -> Unit,
     onOpenNote: (String) -> Unit,
@@ -521,6 +537,12 @@ private fun DestinationContent(
         )
 
         Destination.Focus -> FocusScreen(
+            timer = focusTimer,
+            contentPadding = contentPadding,
+        )
+
+        Destination.Passwords -> PasswordsScreen(
+            engine = engine,
             contentPadding = contentPadding,
         )
 

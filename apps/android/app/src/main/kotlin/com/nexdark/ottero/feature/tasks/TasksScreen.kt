@@ -218,16 +218,19 @@ fun TasksScreen(
                 key = { "task-${it.id}" },
                 contentType = { "task_card" },
             ) { task ->
-                val dismissState = rememberSwipeToDismissBoxState(
-                    confirmValueChange = { value ->
+                val dismissState = rememberSwipeToDismissBoxState()
+
+                SwipeToDismissBox(
+                    state = dismissState,
+                    onDismiss = { value ->
                         when (value) {
                             SwipeToDismissBoxValue.StartToEnd -> {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 scope.launch {
                                     runSuspendCatching { engine.toggleTaskDone(task.id) }
                                         .onFailure { feedback.error(it.message ?: "Could not update task") }
+                                    dismissState.reset()
                                 }
-                                false
                             }
 
                             SwipeToDismissBoxValue.EndToStart -> {
@@ -239,18 +242,16 @@ fun TasksScreen(
                                                 engine.restoreTask(task.id)
                                             }
                                         }
-                                        .onFailure { feedback.error(it.message ?: "Could not trash task") }
+                                        .onFailure {
+                                            feedback.error(it.message ?: "Could not trash task")
+                                            dismissState.reset()
+                                        }
                                 }
-                                true
                             }
 
-                            SwipeToDismissBoxValue.Settled -> false
+                            SwipeToDismissBoxValue.Settled -> Unit
                         }
                     },
-                )
-
-                SwipeToDismissBox(
-                    state = dismissState,
                     backgroundContent = {
                         val dir = dismissState.dismissDirection
                         val bg = when (dir) {
@@ -339,27 +340,6 @@ fun TasksScreen(
                                         },
                                     )
                                 }
-                            }
-                            IconButton(
-                                onClick = {
-                                    scope.launch {
-                                        runSuspendCatching { engine.trashTask(task.id) }
-                                            .onSuccess {
-                                                feedback.undo("Task moved to trash") {
-                                                    engine.restoreTask(task.id)
-                                                }
-                                            }
-                                            .onFailure { feedback.error(it.message ?: "Could not trash task") }
-                                    }
-                                },
-                                modifier = Modifier.size(44.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.DeleteOutline,
-                                    contentDescription = "Move task to trash",
-                                    tint = palette.muted,
-                                    modifier = Modifier.size(18.dp),
-                                )
                             }
                         }
                     }
