@@ -11,8 +11,8 @@ android {
     applicationId = "com.nexdark.ottero"
     minSdk = 28
     targetSdk = 36
-    versionCode = 1
-    versionName = "0.4.1"
+    versionCode = 2
+    versionName = "0.4.2"
   }
 
   buildTypes {

@@ -1,5 +1,22 @@
 [
   {
+    "version": "0.4.2",
+    "date": "2026-11-26",
+    "title": "Complete Trash, Subtask, and Daily Note Sync",
+    "summary": "Emptying Trash, creating subtasks, daily notes, and imported notes now sync across all devices in real time.",
+    "sections": [
+      {
+        "title": "Fixed",
+        "emoji": "🔄",
+        "items": [
+          "Emptying Notes, Tasks, or Calendar Trash now emits encrypted sync tombstones so permanently deleted items clear on all synced devices.",
+          "Creating or deleting subtasks, opening new daily notes, and importing Markdown notes now sync automatically across devices.",
+          "Unified the core encrypted sync engine across Desktop and Mobile so conflict resolution and record serialization stay identical."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.4.1",
     "date": "2026-11-25",
     "title": "Live Cross-Device Note Sync",
