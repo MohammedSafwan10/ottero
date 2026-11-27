@@ -1,5 +1,23 @@
 [
   {
+    "version": "0.4.3",
+    "date": "2026-11-27",
+    "title": "Instant Live Sync & Quiet Unlock Indicator",
+    "summary": "Cross-device sync is now dramatically faster with inline encrypted WebSocket push, persistent keep-alive connections, cached collection keys, and 0 ms push for tasks, habits, and events.",
+    "sections": [
+      {
+        "title": "Improved",
+        "emoji": "⚡",
+        "items": [
+          "Inline encrypted WebSocket push delivers small changes (tasks, notes, events, habits) directly over the open WebSocket in one hop with zero HTTP pull round-trip.",
+          "Reuses persistent keep-alive TLS connections and locally cached collection keys so each sync skips redundant handshakes and key fetches.",
+          "Discrete actions (creating/completing tasks, tapping habits, saving events or vault items) push immediately (0 ms) while continuous note typing uses a calm 350 ms debounce.",
+          "Added a quiet sidebar footer button on Desktop that appears only when Ottero Cloud is locked or has a sync issue, opening Account settings in one click."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.4.2",
     "date": "2026-11-26",
     "title": "Complete Trash, Subtask, and Daily Note Sync",
