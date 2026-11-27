@@ -15,10 +15,10 @@ use ottero_crypto::{SecretKey, SecretString, Zeroize, Zeroizing, vault_link};
 use ottero_storage::{AccountWrap, Store, VaultMeta};
 use ottero_sync_client::{
     DEFAULT_SYNC_URL, SyncClient, SyncVaultMetaPayload, VAULT_META_SYNC_ID, apply_decrypted_page,
-    derive_sync_account_id as shared_derive_sync_account_id, enqueue_full_snapshot,
-    enqueue_local_change, sync_once_with_apply,
+    apply_inline_remote_changes, derive_sync_account_id as shared_derive_sync_account_id,
+    enqueue_full_snapshot, enqueue_local_change, sync_once_with_apply,
 };
-use ottero_sync_protocol::Collection;
+use ottero_sync_protocol::{Collection, WsServerMessage};
 use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
@@ -670,7 +670,7 @@ pub(crate) fn sync_now(
         )
     };
 
-    let client = SyncClient::new(DEFAULT_SYNC_URL).map_err(|_| MobileError::Storage {
+    let client = SyncClient::shared(DEFAULT_SYNC_URL).map_err(|_| MobileError::Storage {
         reason: "Invalid sync server URL".into(),
     })?;
     let now = clock::now();
@@ -716,6 +716,69 @@ pub(crate) fn sync_now(
         pulled: u32::try_from(report.pulled).unwrap_or(u32::MAX),
         latest_seq: report.latest_seq,
     })
+}
+
+/// Fast-path for inline encrypted WebSocket push (`SeqAdvanced` with `changes`).
+/// Parses the raw JSON frame, decrypts and applies contiguous changes directly
+/// to SQLite with zero HTTP round-trips, and returns `true` if handled.
+pub(crate) fn apply_ws_frame(
+    store_mutex: &Mutex<Store>,
+    vault_mutex: &Mutex<VaultKeyState>,
+    account_mutex: &Mutex<AccountSessionState>,
+    raw_frame: &str,
+) -> Result<bool, MobileError> {
+    let Ok(WsServerMessage::SeqAdvanced {
+        latest_seq,
+        changes,
+    }) = serde_json::from_str::<WsServerMessage>(raw_frame)
+    else {
+        return Ok(false);
+    };
+    if changes.is_empty() {
+        return Ok(false);
+    }
+
+    let (email, account_id, account_key) = {
+        let acct = account_mutex
+            .lock()
+            .map_err(|_| MobileError::LockPoisoned)?;
+        let Some(active) = acct.active.as_ref() else {
+            return Ok(false);
+        };
+        let mut key_copy = *active.account_key.expose();
+        (
+            active.email.clone(),
+            active.account_id.clone(),
+            SecretKey::from_bytes(&mut key_copy),
+        )
+    };
+
+    let mut store = store_mutex.lock().map_err(|_| MobileError::LockPoisoned)?;
+    let device_id = ensure_device_id(&store, &account_id)?;
+    let Ok(Some(touched)) = apply_inline_remote_changes(
+        &mut store,
+        &account_id,
+        &device_id,
+        &account_key,
+        clock::now(),
+        latest_seq,
+        &changes,
+    ) else {
+        return Ok(false);
+    };
+
+    if touched.contains(&Collection::Vault) {
+        let mut vault_state = vault_mutex.lock().map_err(|_| MobileError::LockPoisoned)?;
+        let _ = try_unlock_vault_with_account(
+            &mut store,
+            &mut vault_state,
+            &email,
+            &account_key,
+            &device_id,
+            false,
+        );
+    }
+    Ok(true)
 }
 
 /// Returns the active sync `device_id` if this device is signed in to Ottero Cloud.

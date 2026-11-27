@@ -11,7 +11,7 @@ use ottero_storage::{Store, WrappedCollectionKey};
 use ottero_sync_protocol::{
     ChangeId, Collection, CollectionKeyWire, DEFAULT_PULL_LIMIT, Hlc, HlcClock, MAX_PUSH_BATCH,
     MAX_PUSH_TOTAL_BYTES, PROTOCOL_VERSION, ProtocolError, PullRequest, PushChange, PushRequest,
-    PutKeysRequest, QuotaUsage, decode_blob, encode_blob, item_aad,
+    PutKeysRequest, QuotaUsage, RemoteChange, decode_blob, encode_blob, item_aad,
 };
 
 use crate::client::{SyncClient, SyncClientError};
@@ -57,9 +57,10 @@ pub struct SyncCycleReport {
 }
 
 /// Synchronizes wrapped per-collection keys with the server:
-/// 1. Pulls any existing wrapped keys from the server and saves them locally.
-/// 2. Generates + wraps any collections not yet present on the server or locally.
-/// 3. Uploads newly created wrapped keys so other devices can unwrap them.
+/// - Fast path: if all collections already have locally cached wrapped keys,
+///   unwraps them directly without a network round-trip.
+/// - Slow path (first sync or missing keys): pulls authoritative keys from the
+///   server, generates any still-missing ones, and uploads them.
 pub fn sync_collection_keys(
     store: &Store,
     client: &SyncClient,
@@ -67,6 +68,25 @@ pub fn sync_collection_keys(
     account_key: &SecretKey,
     now: Timestamp,
 ) -> Result<HashMap<Collection, SecretKey>, SyncClientError> {
+    let local_keys = store.sync_collection_keys()?;
+    if local_keys.len() >= Collection::ALL.len() {
+        let mut cached = HashMap::with_capacity(Collection::ALL.len());
+        let mut all_present = true;
+        for local in &local_keys {
+            if let Ok(opened) =
+                unwrap_collection_key(account_key, local.collection.code(), &local.wrapped_key)
+            {
+                cached.insert(local.collection, opened);
+            } else {
+                all_present = false;
+                break;
+            }
+        }
+        if all_present && Collection::ALL.iter().all(|c| cached.contains_key(c)) {
+            return Ok(cached);
+        }
+    }
+
     let remote = client.get_keys(bearer_token)?;
     let mut keys = HashMap::with_capacity(Collection::ALL.len());
 
@@ -408,77 +428,41 @@ pub struct BackgroundSyncOutcome {
 pub fn run_background_sync(
     input: BackgroundSyncInput,
 ) -> Result<BackgroundSyncOutcome, SyncClientError> {
-    let client = SyncClient::new(&input.sync_url)?;
+    let client = SyncClient::shared(&input.sync_url)?;
 
-    // 1. Key exchange (adopt server authoritative keys; upload missing).
-    let remote_keys = client.get_keys(&input.bearer_token)?;
+    // 1. Key exchange: use locally cached wrapped keys when all collections are
+    // present (saves a full HTTPS round-trip on every sync); otherwise fetch
+    // authoritative keys from the server and upload any missing ones.
     let mut keys: HashMap<Collection, SecretKey> = HashMap::with_capacity(Collection::ALL.len());
     let mut authoritative: HashMap<Collection, WrappedCollectionKey> =
         HashMap::with_capacity(Collection::ALL.len());
 
-    for rk in &remote_keys.keys {
-        let wrapped_bytes = decode_blob(&rk.wrapped_key_b64)?;
-        let opened =
-            unwrap_collection_key(&input.account_key, rk.collection.code(), &wrapped_bytes)?;
-        keys.insert(rk.collection, opened);
-        authoritative.insert(
-            rk.collection,
-            WrappedCollectionKey {
-                collection: rk.collection,
-                wrapped_key: wrapped_bytes,
-                key_version: rk.key_version,
-                updated_at: input.now,
-            },
-        );
-    }
-
-    let mut to_upload = Vec::new();
-    for local in &input.local_keys {
-        if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(local.collection) {
-            let opened = unwrap_collection_key(
+    let mut used_cached_keys = false;
+    if input.local_keys.len() >= Collection::ALL.len() {
+        let mut cached = HashMap::with_capacity(Collection::ALL.len());
+        let mut ok = true;
+        for local in &input.local_keys {
+            if let Ok(opened) = unwrap_collection_key(
                 &input.account_key,
                 local.collection.code(),
                 &local.wrapped_key,
-            )?;
-            to_upload.push(CollectionKeyWire {
-                collection: local.collection,
-                wrapped_key_b64: encode_blob(&local.wrapped_key),
-                key_version: local.key_version,
-            });
-            authoritative.insert(local.collection, local.clone());
-            slot.insert(opened);
+            ) {
+                cached.insert(local.collection, opened);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if ok && Collection::ALL.iter().all(|c| cached.contains_key(c)) {
+            keys = cached;
+            used_cached_keys = true;
         }
     }
-    for collection in Collection::ALL {
-        if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(collection) {
-            let fresh = SecretKey::generate()?;
-            let wrapped = wrap_collection_key(&input.account_key, collection.code(), &fresh)?;
-            to_upload.push(CollectionKeyWire {
-                collection,
-                wrapped_key_b64: encode_blob(&wrapped),
-                key_version: 1,
-            });
-            authoritative.insert(
-                collection,
-                WrappedCollectionKey {
-                    collection,
-                    wrapped_key: wrapped,
-                    key_version: 1,
-                    updated_at: input.now,
-                },
-            );
-            slot.insert(fresh);
-        }
-    }
-    if !to_upload.is_empty() {
-        let resp = client.put_keys(
-            &input.bearer_token,
-            &PutKeysRequest {
-                protocol: PROTOCOL_VERSION,
-                keys: to_upload,
-            },
-        )?;
-        for rk in &resp.keys {
+
+    if !used_cached_keys {
+        let remote_keys = client.get_keys(&input.bearer_token)?;
+
+        for rk in &remote_keys.keys {
             let wrapped_bytes = decode_blob(&rk.wrapped_key_b64)?;
             let opened =
                 unwrap_collection_key(&input.account_key, rk.collection.code(), &wrapped_bytes)?;
@@ -492,6 +476,72 @@ pub fn run_background_sync(
                     updated_at: input.now,
                 },
             );
+        }
+
+        let mut to_upload = Vec::new();
+        for local in &input.local_keys {
+            if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(local.collection) {
+                let opened = unwrap_collection_key(
+                    &input.account_key,
+                    local.collection.code(),
+                    &local.wrapped_key,
+                )?;
+                to_upload.push(CollectionKeyWire {
+                    collection: local.collection,
+                    wrapped_key_b64: encode_blob(&local.wrapped_key),
+                    key_version: local.key_version,
+                });
+                authoritative.insert(local.collection, local.clone());
+                slot.insert(opened);
+            }
+        }
+        for collection in Collection::ALL {
+            if let std::collections::hash_map::Entry::Vacant(slot) = keys.entry(collection) {
+                let fresh = SecretKey::generate()?;
+                let wrapped = wrap_collection_key(&input.account_key, collection.code(), &fresh)?;
+                to_upload.push(CollectionKeyWire {
+                    collection,
+                    wrapped_key_b64: encode_blob(&wrapped),
+                    key_version: 1,
+                });
+                authoritative.insert(
+                    collection,
+                    WrappedCollectionKey {
+                        collection,
+                        wrapped_key: wrapped,
+                        key_version: 1,
+                        updated_at: input.now,
+                    },
+                );
+                slot.insert(fresh);
+            }
+        }
+        if !to_upload.is_empty() {
+            let resp = client.put_keys(
+                &input.bearer_token,
+                &PutKeysRequest {
+                    protocol: PROTOCOL_VERSION,
+                    keys: to_upload,
+                },
+            )?;
+            for rk in &resp.keys {
+                let wrapped_bytes = decode_blob(&rk.wrapped_key_b64)?;
+                let opened = unwrap_collection_key(
+                    &input.account_key,
+                    rk.collection.code(),
+                    &wrapped_bytes,
+                )?;
+                keys.insert(rk.collection, opened);
+                authoritative.insert(
+                    rk.collection,
+                    WrappedCollectionKey {
+                        collection: rk.collection,
+                        wrapped_key: wrapped_bytes,
+                        key_version: rk.key_version,
+                        updated_at: input.now,
+                    },
+                );
+            }
         }
     }
 
@@ -618,4 +668,111 @@ pub fn run_background_sync(
         pages,
         last_hlc,
     })
+}
+
+/// Fast-path for inline encrypted WebSocket push (`WsServerMessage::SeqAdvanced`
+/// with `changes`). Decrypts and applies contiguous changes directly to `store`
+/// with zero HTTP round-trips.
+///
+/// Returns:
+/// - `Ok(Some(touched))` when `changes` was contiguous with `last_pull_seq` and
+///   applied cleanly (cursor advanced to `latest_seq`).
+/// - `Ok(None)` when `changes` is empty, has a sequence gap, or local collection
+///   keys are not yet cached — caller should fall back to normal HTTP `/pull`.
+pub fn apply_inline_remote_changes(
+    store: &mut Store,
+    account_id: &str,
+    device_id: &str,
+    account_key: &SecretKey,
+    now: Timestamp,
+    latest_seq: i64,
+    changes: &[RemoteChange],
+) -> Result<Option<Vec<Collection>>, SyncClientError> {
+    if changes.is_empty() {
+        return Ok(None);
+    }
+    let mut state = store.sync_state()?;
+    // Only apply inline when contiguous with our current pull cursor so we
+    // never skip an intervening sequence number.
+    let mut expected_seq = state.last_pull_seq + 1;
+    for ch in changes {
+        if ch.seq != expected_seq {
+            return Ok(None);
+        }
+        expected_seq += 1;
+    }
+    let max_inline_seq = expected_seq - 1;
+    if latest_seq > max_inline_seq {
+        return Ok(None);
+    }
+
+    // Require locally cached collection keys; otherwise fall back to HTTP sync.
+    let local_keys = store.sync_collection_keys()?;
+    let mut keys = HashMap::with_capacity(local_keys.len());
+    for wrapped in &local_keys {
+        let Ok(opened) =
+            unwrap_collection_key(account_key, wrapped.collection.code(), &wrapped.wrapped_key)
+        else {
+            return Ok(None);
+        };
+        keys.insert(wrapped.collection, opened);
+    }
+    for ch in changes {
+        if ch.device_id != device_id && !keys.contains_key(&ch.collection) {
+            return Ok(None);
+        }
+    }
+
+    let mut clock = match &state.last_hlc {
+        Some(last) => HlcClock::from_last(device_id, last)?,
+        None => HlcClock::new(device_id)?,
+    };
+    let mut decrypted = Vec::with_capacity(changes.len());
+    for remote in changes {
+        let merged = match clock.receive(&remote.hlc, now.as_millisecond()) {
+            Ok(hlc) => hlc,
+            Err(ProtocolError::ClockDrift) => clock.tick(now.as_millisecond())?,
+            Err(err) => return Err(err.into()),
+        };
+        state.last_hlc = Some(merged);
+        if remote.device_id == device_id {
+            continue;
+        }
+        let Some(key) = keys.get(&remote.collection) else {
+            return Ok(None);
+        };
+        let hlc_str = remote.hlc.to_string();
+        let aad = item_aad(
+            account_id,
+            remote.collection,
+            &remote.item_id,
+            remote.schema_version,
+            &hlc_str,
+            remote.deleted,
+        )?;
+        let ct = decode_blob(&remote.blob_b64)?;
+        let mut pt = open_sync_item(key, &ct, &aad)?;
+        let payload_json = Zeroizing::new(
+            String::from_utf8(std::mem::take(&mut *pt))
+                .map_err(|_| SyncClientError::Decode("non-UTF8 sync payload".into()))?,
+        );
+        decrypted.push(DecryptedChange {
+            seq: remote.seq,
+            change_id: remote.change_id,
+            device_id: remote.device_id.clone(),
+            collection: remote.collection,
+            item_id: remote.item_id.clone(),
+            hlc: remote.hlc.clone(),
+            schema_version: remote.schema_version,
+            deleted: remote.deleted,
+            payload_json,
+        });
+    }
+
+    let touched = crate::record::apply_decrypted_page(store, &decrypted)?;
+    state.last_pull_seq = state.last_pull_seq.max(max_inline_seq);
+    state.last_synced_at = Some(now);
+    state.needs_full_resync = false;
+    store.save_sync_state(&state)?;
+    Ok(Some(touched))
 }

@@ -10,8 +10,8 @@ pub mod record;
 
 pub use client::{DEFAULT_SYNC_URL, SyncClient, SyncClientError, resolve_sync_url};
 pub use engine::{
-    DecryptedChange, SyncCycleReport, ensure_collection_keys, sync_collection_keys, sync_once,
-    sync_once_with_apply,
+    DecryptedChange, SyncCycleReport, apply_inline_remote_changes, ensure_collection_keys,
+    sync_collection_keys, sync_once, sync_once_with_apply,
 };
 pub use record::{
     ALL_TASK_SYNC_FIELDS, SyncEventPayload, SyncHabitPayload, SyncNotePayload, SyncProjectPayload,

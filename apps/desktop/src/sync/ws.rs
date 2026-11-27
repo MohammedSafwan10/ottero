@@ -10,7 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ottero_crypto::Zeroizing;
-use ottero_sync_protocol::{WsClientMessage, WsServerMessage};
+use ottero_sync_protocol::{RemoteChange, WsClientMessage, WsServerMessage};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
 use tungstenite::protocol::WebSocketConfig;
@@ -24,12 +24,15 @@ const READ_TIMEOUT: Duration = Duration::from_secs(2);
 const PING_INTERVAL: Duration = Duration::from_secs(25);
 const PONG_TIMEOUT: Duration = Duration::from_secs(10);
 const STOP_POLL: Duration = Duration::from_millis(250);
-const MAX_WS_FRAME_BYTES: usize = 16 * 1024;
+const MAX_WS_FRAME_BYTES: usize = 128 * 1024;
 
 /// Notices forwarded from the sync WebSocket thread to [`crate::library::Library`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WsNotice {
-    SeqAdvanced(i64),
+    SeqAdvanced {
+        latest_seq: i64,
+        changes: Vec<RemoteChange>,
+    },
     DeviceRevoked,
     EntitlementChanged(bool),
     AuthRejected,
@@ -135,8 +138,14 @@ fn run_loop(
                             last_activity = Instant::now();
                             if let Ok(msg) = serde_json::from_str::<WsServerMessage>(&txt) {
                                 match msg {
-                                    WsServerMessage::SeqAdvanced { latest_seq } => {
-                                        let _ = notify.try_send(WsNotice::SeqAdvanced(latest_seq));
+                                    WsServerMessage::SeqAdvanced {
+                                        latest_seq,
+                                        changes,
+                                    } => {
+                                        let _ = notify.try_send(WsNotice::SeqAdvanced {
+                                            latest_seq,
+                                            changes,
+                                        });
                                     }
                                     WsServerMessage::DeviceRevoked => {
                                         let _ = notify.try_send(WsNotice::DeviceRevoked);

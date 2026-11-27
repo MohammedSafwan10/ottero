@@ -483,6 +483,12 @@ impl OtteroMobile {
         sync::ws_credentials(&store, &acct)
     }
 
+    /// Decrypts and applies inline encrypted WebSocket changes directly to
+    /// SQLite without an HTTP `/pull` round-trip. Returns `true` when applied.
+    pub fn apply_ws_frame(&self, raw_frame: String) -> Result<bool, MobileError> {
+        sync::apply_ws_frame(&self.store, &self.vault_key, &self.account, &raw_frame)
+    }
+
     pub fn set_task_project(
         &self,
         id: String,

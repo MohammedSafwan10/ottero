@@ -13,7 +13,7 @@ use crate::vault::VaultSession;
 
 use super::{Library, LibraryEvent};
 
-const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(500);
+const AUTO_SYNC_DEBOUNCE: Duration = Duration::from_millis(350);
 const AUTO_SYNC_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const FOCUS_SYNC_MIN_GAP_MS: i64 = 10_000;
 
@@ -110,17 +110,27 @@ impl Library {
                         return false;
                     }
                     match notice {
-                        crate::sync::ws::WsNotice::SeqAdvanced(seq) => {
+                        crate::sync::ws::WsNotice::SeqAdvanced {
+                            latest_seq,
+                            changes,
+                        } => {
                             if !lib.can_auto_sync() {
                                 lib.stop_sync_ws();
                                 return false;
                             }
                             let last = lib.store.sync_state().map(|s| s.last_pull_seq).unwrap_or(0);
-                            if seq > last {
-                                if lib.sync_in_flight {
-                                    lib.sync_needed_again = true;
-                                } else {
-                                    lib.sync_now(cx);
+                            if latest_seq > last {
+                                // Fast path: decrypt and apply inline WS changes
+                                // directly (~2 ms, zero HTTP round-trip).
+                                let applied_inline = !lib.sync_in_flight
+                                    && !changes.is_empty()
+                                    && lib.try_apply_ws_inline_changes(latest_seq, &changes, cx);
+                                if !applied_inline {
+                                    if lib.sync_in_flight {
+                                        lib.sync_needed_again = true;
+                                    } else {
+                                        lib.sync_now(cx);
+                                    }
                                 }
                             }
                             true
@@ -146,6 +156,115 @@ impl Library {
             }
         })
         .detach();
+    }
+
+    /// Attempts to decrypt and apply inline WebSocket changes directly to
+    /// SQLite without an HTTP `/pull` round-trip. Returns `true` when handled.
+    fn try_apply_ws_inline_changes(
+        &mut self,
+        latest_seq: i64,
+        changes: &[ottero_sync_protocol::RemoteChange],
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(open_key) = self.account.key() else {
+            return false;
+        };
+        let Ok(state) = self.store.sync_state() else {
+            return false;
+        };
+        if state.account_id.is_empty() || state.needs_full_resync {
+            return false;
+        }
+        let Ok(device_id) = self.sync_device_id() else {
+            return false;
+        };
+        let account_key = {
+            let mut raw = ottero_crypto::Zeroizing::new([0u8; ottero_crypto::SecretKey::LEN]);
+            raw.copy_from_slice(open_key.expose());
+            ottero_crypto::SecretKey::from_bytes(&mut raw)
+        };
+        let meta_before = self
+            .store
+            .vault_meta()
+            .ok()
+            .flatten()
+            .and_then(|m| m.account.map(|a| a.wrapped_key));
+        let Ok(Some(touched)) = ottero_sync_client::apply_inline_remote_changes(
+            &mut self.store,
+            &state.account_id,
+            &device_id,
+            &account_key,
+            clock::now(),
+            latest_seq,
+            changes,
+        ) else {
+            return false;
+        };
+
+        let mut notes_changed = false;
+        let mut tasks_changed = false;
+        let mut events_changed = false;
+        let mut habits_changed = false;
+        let mut focus_changed = false;
+        let mut vault_changed = false;
+        for c in touched {
+            match c {
+                ottero_sync_protocol::Collection::Notes => notes_changed = true,
+                ottero_sync_protocol::Collection::Tasks
+                | ottero_sync_protocol::Collection::Projects => tasks_changed = true,
+                ottero_sync_protocol::Collection::Events => events_changed = true,
+                ottero_sync_protocol::Collection::Habits => habits_changed = true,
+                ottero_sync_protocol::Collection::Focus => focus_changed = true,
+                ottero_sync_protocol::Collection::Vault => vault_changed = true,
+                _ => {}
+            }
+        }
+        let meta_after = self
+            .store
+            .vault_meta()
+            .ok()
+            .flatten()
+            .and_then(|m| m.account.map(|a| a.wrapped_key));
+        let vault_meta_changed = meta_before != meta_after;
+        self.sync_last_error = None;
+        if vault_changed || vault_meta_changed {
+            self.refresh_vault_after_sync(vault_meta_changed);
+        }
+        if notes_changed {
+            cx.emit(LibraryEvent::NotesChanged);
+        }
+        if tasks_changed {
+            cx.emit(LibraryEvent::TasksChanged);
+        }
+        if events_changed {
+            cx.emit(LibraryEvent::EventsChanged);
+        }
+        if habits_changed {
+            cx.emit(LibraryEvent::HabitsChanged);
+        }
+        if focus_changed {
+            cx.emit(LibraryEvent::FocusChanged);
+        }
+        if vault_changed || vault_meta_changed {
+            cx.emit(LibraryEvent::VaultChanged);
+        }
+        cx.emit(LibraryEvent::AccountChanged);
+        true
+    }
+
+    /// Triggers an immediate sync for discrete user actions (task toggle,
+    /// habit tap, event save) without waiting for the typing debounce window.
+    pub fn schedule_immediate_sync(&mut self, cx: &mut Context<Self>) {
+        if !self.can_auto_sync() {
+            return;
+        }
+        self.ensure_sync_ws(cx);
+        if self.sync_in_flight {
+            self.sync_needed_again = true;
+            return;
+        }
+        self.sync_debounce_gen = self.sync_debounce_gen.wrapping_add(1);
+        self.sync_now(cx);
     }
 
     /// Coalesces rapid local edits into a single sync cycle after a short delay.

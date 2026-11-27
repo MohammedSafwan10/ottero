@@ -222,8 +222,12 @@ class SyncRealtimeClient(
         when (json.optString("type")) {
             "seq_advanced" -> {
                 val latestSeq = json.optLong("latest_seq", -1L)
-                Log.d(TAG, "WS seq_advanced latest_seq=$latestSeq")
+                val hasInline = json.optJSONArray("changes")?.let { it.length() > 0 } == true
+                Log.d(TAG, "WS seq_advanced latest_seq=$latestSeq inline=$hasInline")
                 scope.launch {
+                    if (hasInline && engine.tryApplyWsFrame(text)) {
+                        return@launch
+                    }
                     val creds = runCatching { engine.syncWsCredentials() }.getOrNull()
                     val lastPull = creds?.lastPullSeq ?: 0L
                     if (latestSeq < 0L || latestSeq > lastPull) {

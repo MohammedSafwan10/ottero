@@ -304,13 +304,26 @@ pub struct SyncErrorResponse {
     pub message: String,
 }
 
+/// Maximum total decoded ciphertext bytes included inline in a WebSocket
+/// `SeqAdvanced` push notice. Larger batches send `changes: []` so clients
+/// pull them over HTTP instead.
+pub const MAX_WS_INLINE_BYTES: usize = 64 * 1024;
+
 /// Real-time WebSocket notices sent from server to connected devices.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsServerMessage {
-    SeqAdvanced { latest_seq: i64 },
+    SeqAdvanced {
+        latest_seq: i64,
+        /// Optional inline encrypted changes for sub-200 ms live sync.
+        /// Older clients ignore this field and fall back to HTTP `/pull`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        changes: Vec<RemoteChange>,
+    },
     DeviceRevoked,
-    EntitlementChanged { active: bool },
+    EntitlementChanged {
+        active: bool,
+    },
     Pong,
 }
 
@@ -414,11 +427,21 @@ mod tests {
         let back: PullRequest = serde_json::from_str(&json).expect("back");
         assert_eq!(back, pull);
 
-        let ws = WsServerMessage::SeqAdvanced { latest_seq: 99 };
+        let ws = WsServerMessage::SeqAdvanced {
+            latest_seq: 99,
+            changes: Vec::new(),
+        };
         let ws_json = serde_json::to_string(&ws).expect("ws json");
         assert!(ws_json.contains("seq_advanced"));
+        assert!(!ws_json.contains("changes"));
         assert_eq!(
             serde_json::from_str::<WsServerMessage>(&ws_json).expect("ws"),
+            ws
+        );
+        // Old server JSON without `changes` still deserializes cleanly.
+        assert_eq!(
+            serde_json::from_str::<WsServerMessage>(r#"{"type":"seq_advanced","latest_seq":99}"#)
+                .expect("legacy ws"),
             ws
         );
 

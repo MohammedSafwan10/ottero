@@ -393,4 +393,82 @@ fn desktop_and_android_converge_across_notes_tasks_events_habits() {
     .expect("android pull tombstone");
 
     assert!(android.note(note.id()).expect("note").is_none());
+
+    // 7. Inline WebSocket push fast-path: Android pushes a new task, Desktop
+    //    applies the RemoteChange directly via `apply_inline_remote_changes`
+    //    with zero HTTP round-trips.
+    let ws_task = Task::new("Live WS task", clock::now()).expect("ws task");
+    android.save_task(&ws_task).expect("save ws task");
+    enqueue_task_change(&android, dev_android, &ws_task, clock::now()).expect("enqueue ws task");
+    let push_report = sync_once_with_apply(
+        &mut android,
+        &client,
+        token,
+        &account_id,
+        dev_android,
+        &account_key,
+        clock::now(),
+        |s, page| {
+            apply_decrypted_page(s, page)?;
+            Ok(())
+        },
+    )
+    .expect("android push ws task");
+    assert_eq!(push_report.pushed, 1);
+
+    let desktop_seq_before = desktop.sync_state().expect("st").last_pull_seq;
+    let pulled = client
+        .pull(
+            token,
+            &ottero_sync_protocol::PullRequest {
+                protocol: ottero_sync_protocol::PROTOCOL_VERSION,
+                after_seq: desktop_seq_before,
+                limit: 10,
+            },
+        )
+        .expect("fetch pushed remote change");
+    assert_eq!(pulled.changes.len(), 1);
+
+    // Gap check: a non-contiguous seq must return Ok(None) so caller falls back to HTTP pull.
+    let mut gapped = pulled.changes.clone();
+    gapped[0].seq += 5;
+    assert_eq!(
+        ottero_sync_client::apply_inline_remote_changes(
+            &mut desktop,
+            &account_id,
+            dev_desktop,
+            &account_key,
+            clock::now(),
+            gapped[0].seq,
+            &gapped,
+        )
+        .expect("gap check"),
+        None
+    );
+
+    // Contiguous inline apply: zero HTTP calls, task immediately present in SQLite.
+    let touched = ottero_sync_client::apply_inline_remote_changes(
+        &mut desktop,
+        &account_id,
+        dev_desktop,
+        &account_key,
+        clock::now(),
+        pulled.next_seq,
+        &pulled.changes,
+    )
+    .expect("inline apply")
+    .expect("applied inline");
+    assert!(touched.contains(&ottero_sync_protocol::Collection::Tasks));
+    assert_eq!(
+        desktop.sync_state().expect("st").last_pull_seq,
+        pulled.next_seq
+    );
+    assert_eq!(
+        desktop
+            .task(ws_task.id())
+            .expect("task")
+            .expect("present")
+            .title(),
+        "Live WS task"
+    );
 }

@@ -66,22 +66,51 @@ class OtteroEngine(private val mobile: OtteroMobile) {
     private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 32)
     val changes: SharedFlow<Unit> = _changes.asSharedFlow()
 
-    /** Emits a local change signal and schedules a 500 ms debounced cloud sync if signed in. */
-    private fun notifyMutation() {
+    /**
+     * Emits a local change signal and schedules cloud sync if signed in.
+     * Discrete actions (tasks, habits, events, vault) sync immediately (`0 ms`);
+     * continuous note typing uses a short 350 ms debounce.
+     */
+    private fun notifyMutation(immediate: Boolean = true) {
         _changes.tryEmit(Unit)
-        scheduleAutoSync()
+        scheduleAutoSync(immediate)
     }
 
-    private fun scheduleAutoSync() {
+    private fun scheduleAutoSync(immediate: Boolean) {
         autoSyncJob?.cancel()
         autoSyncJob = syncScope.launch {
-            delay(500L)
+            if (!immediate) {
+                delay(350L)
+            }
             val signedIn = runCatching {
                 withContext(dbDispatcher) { mobile.accountStatus().signedIn }
             }.getOrDefault(false)
             if (signedIn) {
                 requestCoalescedSync()
             }
+        }
+    }
+
+    /**
+     * Fast-path for inline encrypted WebSocket push: decrypts & applies
+     * contiguous changes directly in SQLite (~2 ms, zero HTTP round-trip).
+     * Returns `true` if handled, `false` if caller should fall back to HTTP sync.
+     */
+    suspend fun tryApplyWsFrame(rawFrame: String): Boolean {
+        if (!syncMutex.tryLock()) {
+            syncNeededAgain.set(true)
+            return true
+        }
+        return try {
+            val applied = runCatching {
+                withContext(dbDispatcher) { mobile.applyWsFrame(rawFrame) }
+            }.getOrDefault(false)
+            if (applied) {
+                _changes.tryEmit(Unit)
+            }
+            applied
+        } finally {
+            syncMutex.unlock()
         }
     }
 
@@ -142,7 +171,7 @@ class OtteroEngine(private val mobile: OtteroMobile) {
 
     suspend fun updateNote(id: String, title: String, body: String): NoteDetail =
         withContext(dbDispatcher) {
-            mobile.updateNote(id, title, body).also { notifyMutation() }
+            mobile.updateNote(id, title, body).also { notifyMutation(immediate = false) }
         }
 
     fun flushNoteAsync(id: String, title: String, body: String) {

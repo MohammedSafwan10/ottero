@@ -158,10 +158,17 @@ impl AppShell {
                 ) {
                     this.refresh_badges(cx);
                 }
-                if !matches!(event, LibraryEvent::AccountChanged) {
+                if matches!(event, LibraryEvent::AccountChanged) {
+                    cx.notify();
+                } else {
+                    let immediate = !matches!(event, LibraryEvent::NotesChanged);
                     this.library.update(cx, |lib, cx| {
                         if lib.can_auto_sync() && lib.pending_sync_count() > 0 {
-                            lib.schedule_debounced_sync(cx);
+                            if immediate {
+                                lib.schedule_immediate_sync(cx);
+                            } else {
+                                lib.schedule_debounced_sync(cx);
+                            }
                         }
                     });
                 }
@@ -848,16 +855,60 @@ impl AppShell {
 
         // Settings: a single icon button in the footer (name in its tooltip,
         // with the shortcut). Also reachable via ⌘, and the command palette.
-        let settings_item = h_flex().w_full().child(
-            Button::new("sidebar-settings")
+        // Only when Ottero Cloud is locked or has an error, show one quiet
+        // action next to Settings so sync never stalls silently.
+        let lib = self.library.read(cx);
+        let cloud_signed_in = matches!(
+            lib.account().state(),
+            ottero_core::account::AccountState::SignedIn { plan, .. } if plan.has_cloud()
+        );
+        let sync_locked = cloud_signed_in && !lib.account().is_unlocked();
+        let sync_error = cloud_signed_in && !sync_locked && lib.sync_last_error().is_some();
+        let sync_notice: Option<Button> = if sync_locked {
+            let mut btn = Button::new("sidebar-sync-locked")
                 .ghost()
                 .small()
-                .icon(Lucide::Settings)
-                .tooltip_with_action("Settings", &GoSettings, None)
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.navigate(Route::Settings, window, cx)),
-                ),
-        );
+                .icon(Lucide::LockKeyhole)
+                .tooltip("Ottero Cloud is locked — click to unlock sync")
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_account(None, window, cx);
+                }));
+            if !collapsed {
+                btn = btn.label("Unlock sync");
+            }
+            Some(btn)
+        } else if sync_error {
+            let mut btn = Button::new("sidebar-sync-issue")
+                .ghost()
+                .small()
+                .icon(Lucide::Cloud)
+                .tooltip("Sync issue — click to view in Account")
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_account(None, window, cx);
+                }));
+            if !collapsed {
+                btn = btn.label("Sync issue");
+            }
+            Some(btn)
+        } else {
+            None
+        };
+        let settings_item = h_flex()
+            .w_full()
+            .items_center()
+            .justify_between()
+            .gap_1()
+            .child(
+                Button::new("sidebar-settings")
+                    .ghost()
+                    .small()
+                    .icon(Lucide::Settings)
+                    .tooltip_with_action("Settings", &GoSettings, None)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.navigate(Route::Settings, window, cx)
+                    })),
+            )
+            .children(sync_notice);
 
         // The sidebar animates collapse/expand between widths it has seen
         // before. Keying it by width means a drag starts a fresh state at the

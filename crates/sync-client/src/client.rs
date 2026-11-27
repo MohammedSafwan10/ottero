@@ -3,6 +3,8 @@
 //! Only ciphertext envelopes and minimal routing metadata cross the wire
 //! (`ottero-sync-protocol`). Never sends plaintext content or encryption keys.
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use ottero_sync_protocol::{
@@ -94,9 +96,27 @@ impl SyncClient {
         })
     }
 
+    /// Returns a cached keep-alive client for `base_url`, reusing the
+    /// underlying TLS 1.3 connection pool across sync cycles.
+    pub fn shared(base_url: &str) -> Result<Self, SyncClientError> {
+        static POOL: OnceLock<Mutex<HashMap<String, SyncClient>>> = OnceLock::new();
+        let key = base_url.trim_end_matches('/').to_owned();
+        let pool = POOL.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(guard) = pool.lock()
+            && let Some(existing) = guard.get(&key)
+        {
+            return Ok(existing.clone());
+        }
+        let fresh = Self::new(&key)?;
+        if let Ok(mut guard) = pool.lock() {
+            guard.entry(key).or_insert_with(|| fresh.clone());
+        }
+        Ok(fresh)
+    }
+
     /// Resolves the sync URL (allowing `OTTERO_SYNC_URL` in debug builds).
     pub fn default_client() -> Result<Self, SyncClientError> {
-        Self::new(&resolve_sync_url())
+        Self::shared(&resolve_sync_url())
     }
 
     pub fn get_keys(&self, bearer_token: &str) -> Result<KeysResponse, SyncClientError> {
