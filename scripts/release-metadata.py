@@ -44,7 +44,11 @@ with zipfile.ZipFile(portable[0]) as archive: verify_notices(archive,'current/')
 entries = json.loads(Path('apps/desktop/changelog.json').read_text())
 notes = next(e for e in entries if e['version'] == version)
 platforms = {}
-for platform, artifact in [('macos-arm64', mac), ('windows-x64', windows[0])]:
+entries_list = [('macos-arm64', mac), ('windows-x64', windows[0])]
+android = root / f'Ottero-{version}-android.apk'
+if android.exists():
+    entries_list.append(('android-apk', android))
+for platform, artifact in entries_list:
     with artifact.open('rb') as file: digest = hashlib.file_digest(file, 'sha256').hexdigest()
     size = artifact.stat().st_size
     assert 0 < size <= 300 * 1024 * 1024, 'package exceeds client size limit'

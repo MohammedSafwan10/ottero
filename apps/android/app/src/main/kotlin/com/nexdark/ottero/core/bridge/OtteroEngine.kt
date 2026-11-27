@@ -27,6 +27,7 @@ import uniffi.ottero_mobile_ffi.MobileAccountStatus
 import uniffi.ottero_mobile_ffi.MobileSignInResult
 import uniffi.ottero_mobile_ffi.MobileSyncReport
 import uniffi.ottero_mobile_ffi.MobileTaskFilter
+import uniffi.ottero_mobile_ffi.MobileUpdateInfo
 import uniffi.ottero_mobile_ffi.MobileVaultStatus
 import uniffi.ottero_mobile_ffi.NoteDetail
 import uniffi.ottero_mobile_ffi.NoteListItem
@@ -139,6 +140,10 @@ class OtteroEngine(private val mobile: OtteroMobile) {
 
     suspend fun appInfo(): AppInfo = withContext(dbDispatcher) {
         mobile.appInfo()
+    }
+
+    suspend fun checkForUpdate(): MobileUpdateInfo? = withContext(Dispatchers.IO) {
+        mobile.checkForUpdate()
     }
 
     suspend fun todaySnapshot(): TodaySnapshot = withContext(dbDispatcher) {

@@ -10,6 +10,7 @@ mod notes;
 mod sync;
 mod tasks;
 mod today;
+mod update;
 mod vault;
 
 use std::path::Path;
@@ -22,9 +23,9 @@ use vault::VaultKeyState;
 pub use dto::{
     AccountSessionBundle, AppInfo, CalendarEventItem, FocusSessionItem, HabitItem, HolidayItem,
     MobileAccountStatus, MobileSignInResult, MobileSignInStatus, MobileSyncReport,
-    MobileTaskFilter, MobileVaultStatus, NoteDetail, NoteListItem, ProjectItem, SyncWsCredentials,
-    TagCount, TaskItem, TodaySnapshot, TotpCodeSnapshot, UnifiedTrashSnapshot, VaultEntryDetail,
-    VaultEntrySummary,
+    MobileTaskFilter, MobileUpdateInfo, MobileVaultStatus, NoteDetail, NoteListItem, ProjectItem,
+    SyncWsCredentials, TagCount, TaskItem, TodaySnapshot, TotpCodeSnapshot, UnifiedTrashSnapshot,
+    VaultEntryDetail, VaultEntrySummary,
 };
 pub use error::MobileError;
 
@@ -487,6 +488,12 @@ impl OtteroMobile {
     /// SQLite without an HTTP `/pull` round-trip. Returns `true` when applied.
     pub fn apply_ws_frame(&self, raw_frame: String) -> Result<bool, MobileError> {
         sync::apply_ws_frame(&self.store, &self.vault_key, &self.account, &raw_frame)
+    }
+
+    /// Checks `ottero-releases` for a signed `android-apk` update newer than
+    /// this build, verifying the minisign signature against `RELEASE_KEY`.
+    pub fn check_for_update(&self) -> Result<Option<MobileUpdateInfo>, MobileError> {
+        update::check_for_update()
     }
 
     pub fn set_task_project(

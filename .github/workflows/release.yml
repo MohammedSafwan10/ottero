@@ -175,9 +175,9 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: |
           ./scripts/build-android-rust.sh --release
-          (cd apps/android && ./gradlew assembleRelease)
+          (cd apps/android && ./gradlew assembleDirectRelease)
           mkdir -p dist
-          cp apps/android/app/build/outputs/apk/release/app-release.apk "dist/Ottero-${VERSION}-android.apk"
+          cp apps/android/app/build/outputs/apk/direct/release/app-direct-release.apk "dist/Ottero-${VERSION}-android.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: native-Android

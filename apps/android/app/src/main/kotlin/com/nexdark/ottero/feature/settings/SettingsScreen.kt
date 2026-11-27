@@ -46,6 +46,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -81,6 +82,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.nexdark.ottero.BuildConfig
 import com.nexdark.ottero.core.async.runSuspendCatching
 import com.nexdark.ottero.core.bridge.OtteroEngine
 import com.nexdark.ottero.core.components.OtteroCard
@@ -92,12 +94,15 @@ import com.nexdark.ottero.core.prefs.OtteroPrefsState
 import com.nexdark.ottero.core.prefs.StartupDestination
 import com.nexdark.ottero.core.prefs.WeekStartPreference
 import com.nexdark.ottero.core.security.AccountKeystore
+import com.nexdark.ottero.core.update.AppUpdater
 import com.nexdark.ottero.ui.theme.LocalOtteroPalette
 import com.nexdark.ottero.ui.theme.ThemePreference
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import uniffi.ottero_mobile_ffi.AppInfo
+import uniffi.ottero_mobile_ffi.MobileUpdateInfo
+import java.io.File
 import uniffi.ottero_mobile_ffi.MobileAccountStatus
 import uniffi.ottero_mobile_ffi.MobileSignInStatus
 
@@ -840,6 +845,164 @@ private fun SettingsDetailPane(
                             )
                         }
                     }
+                }
+                if (BuildConfig.SELF_UPDATE_ENABLED) {
+                    item(key = "detail-about-updates") {
+                        AboutUpdatesCard(engine = engine)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutUpdatesCard(engine: OtteroEngine) {
+    val palette = LocalOtteroPalette.current
+    val feedback = LocalOtteroFeedback.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var checking by remember { mutableStateOf(false) }
+    var upToDate by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var available by remember { mutableStateOf<MobileUpdateInfo?>(null) }
+    var downloading by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf(0f) }
+    var downloadedFile by remember { mutableStateOf<File?>(null) }
+
+    OtteroCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Updates",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = palette.ink,
+                )
+                Spacer(Modifier.height(2.dp))
+                val subtitle = when {
+                    checking -> "Checking signed release feed…"
+                    downloading -> "Downloading & verifying SHA-256 (${(downloadProgress * 100).toInt()}%)…"
+                    downloadedFile != null -> "Verified and ready to install."
+                    available != null -> "Ottero ${available!!.version} is available (${available!!.date})."
+                    errorMsg != null -> errorMsg!!
+                    upToDate -> "You’re up to date."
+                    else -> "Signed updates verified with Ottero’s release key."
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (errorMsg != null) palette.danger else palette.muted,
+                )
+            }
+            if (available == null && downloadedFile == null) {
+                Spacer(Modifier.width(12.dp))
+                OutlinedButton(
+                    onClick = {
+                        if (checking) return@OutlinedButton
+                        checking = true
+                        upToDate = false
+                        errorMsg = null
+                        scope.launch {
+                            runSuspendCatching { engine.checkForUpdate() }
+                                .onSuccess { info ->
+                                    available = info
+                                    upToDate = info == null
+                                }
+                                .onFailure { err ->
+                                    errorMsg = err.message ?: "Couldn't check for updates."
+                                }
+                            checking = false
+                        }
+                    },
+                    enabled = !checking,
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Text(if (checking) "Checking…" else "Check now")
+                }
+            }
+        }
+
+        val updateInfo = available
+        if (updateInfo != null) {
+            if (updateInfo.notes.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                updateInfo.notes.take(4).forEach { line ->
+                    Text(
+                        text = "• $line",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.muted,
+                    )
+                }
+            }
+            if (downloading) {
+                Spacer(Modifier.height(10.dp))
+                LinearProgressIndicator(
+                    progress = { downloadProgress },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = palette.ink,
+                    trackColor = palette.border,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val readyFile = downloadedFile
+                Button(
+                    onClick = {
+                        if (downloading) return@Button
+                        if (readyFile != null && readyFile.exists()) {
+                            when (AppUpdater.installApk(context, readyFile)) {
+                                AppUpdater.InstallResult.Launched -> Unit
+                                AppUpdater.InstallResult.NeedsPermission -> {
+                                    feedback.info("Allow installing updates for Ottero, then tap Install update again.")
+                                }
+                            }
+                            return@Button
+                        }
+                        downloading = true
+                        downloadProgress = 0f
+                        errorMsg = null
+                        scope.launch {
+                            runSuspendCatching {
+                                AppUpdater.downloadVerified(context, updateInfo) { p ->
+                                    downloadProgress = p
+                                }
+                            }.onSuccess { file ->
+                                downloadedFile = file
+                                downloading = false
+                                when (AppUpdater.installApk(context, file)) {
+                                    AppUpdater.InstallResult.Launched -> Unit
+                                    AppUpdater.InstallResult.NeedsPermission -> {
+                                        feedback.info("Allow installing updates for Ottero, then tap Install update.")
+                                    }
+                                }
+                            }.onFailure { err ->
+                                downloading = false
+                                errorMsg = err.message ?: "Update download failed."
+                            }
+                        }
+                    },
+                    enabled = !downloading,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.ink,
+                        contentColor = palette.canvas,
+                    ),
+                ) {
+                    Text(
+                        when {
+                            downloading -> "Downloading…"
+                            readyFile != null -> "Install update"
+                            else -> "Download & install"
+                        },
+                    )
                 }
             }
         }

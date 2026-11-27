@@ -24,6 +24,10 @@ Overwrite **Current state** and **Next steps** every session. Append to the log.
       - Immediate (`0 ms`) push for discrete mutations (tasks, habits, events, vault, trash) while keeping `350 ms` debounce for continuous note typing.
       - Backward-compatible inline encrypted WebSocket push (`WsServerMessage::SeqAdvanced { latest_seq, changes }`, `apply_inline_remote_changes` on Desktop and `apply_ws_frame` on Android) for single-hop sub-200 ms live delivery with automatic HTTP `/pull` fallback on sequence gaps.
       - Quiet Desktop sidebar footer action (`Unlock sync` / `Sync issue`) shown only when Cloud is signed in and locked or errored.
+    - **Android Verified In-App Updates (`direct` vs `play` flavors):**
+      - `scripts/release-metadata.py` includes signed `android-apk` (`url`, `sha256`, `size`) in `stable.json` + `stable.json.minisig`.
+      - `crates/mobile-ffi/src/update.rs` verifies `stable.json` against `ottero_core::update::RELEASE_KEY`.
+      - `apps/android/app/build.gradle.kts` defines `direct` (`SELF_UPDATE_ENABLED=true`, `REQUEST_INSTALL_PACKAGES` + `FileProvider` in `src/direct/`) and `play` (`SELF_UPDATE_ENABLED=false`, Play-compliant) flavors, with `AppUpdater.kt` streaming SHA-256 verification and Settings → About **Check now** UI.
   - **Native Android App (`crates/mobile-ffi` + `apps/android`, Phases 0–6 + Parity Waves 1–4):**
     - Full UniFFI bridge (`crates/mobile-ffi`: `notes`, `tasks`, `calendar`,
       `habits`, `focus`, `today`, `vault`, `sync`) sharing `ottero-core`,

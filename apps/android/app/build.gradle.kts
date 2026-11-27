@@ -35,6 +35,18 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
   }
+  flavorDimensions += "distribution"
+  productFlavors {
+    create("direct") {
+      dimension = "distribution"
+      buildConfigField("Boolean", "SELF_UPDATE_ENABLED", "true")
+    }
+    create("play") {
+      dimension = "distribution"
+      buildConfigField("Boolean", "SELF_UPDATE_ENABLED", "false")
+    }
+  }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -42,7 +54,7 @@ android {
   buildFeatures {
     compose = true
     aidl = false
-    buildConfig = false
+    buildConfig = true
     shaders = false
   }
 

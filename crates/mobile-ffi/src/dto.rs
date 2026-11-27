@@ -206,3 +206,13 @@ pub struct SyncWsCredentials {
     pub bearer_token: String,
     pub last_pull_seq: i64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MobileUpdateInfo {
+    pub version: String,
+    pub date: String,
+    pub notes: Vec<String>,
+    pub download_url: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+}
