@@ -518,6 +518,11 @@ private fun SettingsDetailPane(
             SettingsPage.Account -> {
                 item(key = "detail-account") {
                     val status = accountStatus
+                    LaunchedEffect(status?.signedIn) {
+                        if (status?.signedIn == true) {
+                            runCatching { engine.refreshAccountPlan() }
+                        }
+                    }
                     if (status != null && status.signedIn) {
                         OtteroCard {
                             Text(

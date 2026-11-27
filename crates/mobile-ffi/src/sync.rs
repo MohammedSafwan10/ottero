@@ -614,8 +614,10 @@ pub(crate) fn restore_session(
             .and_then(|s| s.last_synced_at)
             .is_some()
         {
+            // Keep sync enabled offline without showing "Manage billing" until
+            // `/api/me` confirms whether the subscription is Paid vs Owner/Granted.
             Plan::Cloud {
-                source: CloudSource::Paid,
+                source: CloudSource::Granted,
                 ends_at: None,
             }
         } else {
