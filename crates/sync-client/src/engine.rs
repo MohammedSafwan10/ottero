@@ -632,7 +632,38 @@ pub fn run_background_sync(
                 remote.deleted,
             )?;
             let ct = decode_blob(&remote.blob_b64)?;
-            let mut pt = open_sync_item(key, &ct, &aad)?;
+            let mut pt = match open_sync_item(key, &ct, &aad) {
+                Ok(pt) => pt,
+                Err(ottero_crypto::CryptoError::Decrypt) if used_cached_keys => {
+                    // Refresh authoritative collection keys once in case another
+                    // device rotated a key while we were using the local cache.
+                    used_cached_keys = false;
+                    let remote_keys = client.get_keys(&input.bearer_token)?;
+                    for rk in &remote_keys.keys {
+                        let wrapped_bytes = decode_blob(&rk.wrapped_key_b64)?;
+                        let opened = unwrap_collection_key(
+                            &input.account_key,
+                            rk.collection.code(),
+                            &wrapped_bytes,
+                        )?;
+                        keys.insert(rk.collection, opened);
+                        authoritative.insert(
+                            rk.collection,
+                            WrappedCollectionKey {
+                                collection: rk.collection,
+                                wrapped_key: wrapped_bytes,
+                                key_version: rk.key_version,
+                                updated_at: input.now,
+                            },
+                        );
+                    }
+                    let refreshed_key = keys
+                        .get(&remote.collection)
+                        .ok_or(ottero_crypto::CryptoError::Format)?;
+                    open_sync_item(refreshed_key, &ct, &aad)?
+                }
+                Err(err) => return Err(err.into()),
+            };
             let payload_json = Zeroizing::new(
                 String::from_utf8(std::mem::take(&mut *pt))
                     .map_err(|_| SyncClientError::Decode("non-UTF8 sync payload".into()))?,
@@ -692,6 +723,9 @@ pub fn apply_inline_remote_changes(
         return Ok(None);
     }
     let mut state = store.sync_state()?;
+    if state.needs_full_resync {
+        return Ok(None);
+    }
     // Only apply inline when contiguous with our current pull cursor so we
     // never skip an intervening sequence number.
     let mut expected_seq = state.last_pull_seq + 1;

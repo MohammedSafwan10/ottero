@@ -30,7 +30,8 @@ object AppUpdater {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
-        .followSslRedirects(true)
+        // Never allow an HTTPS → HTTP downgrade on redirect.
+        .followSslRedirects(false)
         .build()
 
     sealed interface InstallResult {
@@ -45,6 +46,9 @@ object AppUpdater {
     ): File = withContext(Dispatchers.IO) {
         require(info.downloadUrl.startsWith("https://")) {
             "Update URL must use HTTPS"
+        }
+        require(info.version.matches(Regex("^\\d+\\.\\d+\\.\\d+$"))) {
+            "Invalid update version format"
         }
         val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
         // Clean stale APKs before downloading the new one.

@@ -398,6 +398,9 @@ impl Library {
         if self.sync_in_flight {
             return;
         }
+        if self.can_auto_sync() {
+            self.ensure_sync_ws(cx);
+        }
         let Some(email) = self.account.signed_in_email() else {
             return;
         };
