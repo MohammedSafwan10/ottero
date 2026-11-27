@@ -189,6 +189,9 @@ pub struct MobileSignInResult {
 pub struct MobileAccountStatus {
     pub signed_in: bool,
     pub email: Option<String>,
+    pub plan_label: String,
+    pub has_cloud: bool,
+    pub is_paid_cloud: bool,
     pub last_synced_at_ms: Option<i64>,
     pub pending_outbox_count: u32,
 }

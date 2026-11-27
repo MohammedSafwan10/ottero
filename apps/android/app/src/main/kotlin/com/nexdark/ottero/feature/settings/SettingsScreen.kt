@@ -531,19 +531,34 @@ private fun SettingsDetailPane(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = palette.ink,
                             )
-                            val syncMeta = buildList {
-                                if (isLive) add("Live")
-                                status.lastSyncedAtMs?.let { ms ->
-                                    add("Last synced ${formatRelativeSyncTime(ms)}")
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = status.planLabel,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = palette.muted,
+                            )
+                            if (status.hasCloud) {
+                                val syncMeta = buildList {
+                                    if (isLive) add("Live")
+                                    status.lastSyncedAtMs?.let { ms ->
+                                        add("Last synced ${formatRelativeSyncTime(ms)}")
+                                    }
+                                    if (status.pendingOutboxCount > 0u) {
+                                        add("${status.pendingOutboxCount} pending")
+                                    }
+                                }.joinToString(" · ")
+                                if (syncMeta.isNotEmpty()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = syncMeta,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = palette.muted,
+                                    )
                                 }
-                                if (status.pendingOutboxCount > 0u) {
-                                    add("${status.pendingOutboxCount} pending")
-                                }
-                            }.joinToString(" · ")
-                            if (syncMeta.isNotEmpty()) {
-                                Spacer(Modifier.height(2.dp))
+                            } else {
+                                Spacer(Modifier.height(8.dp))
                                 Text(
-                                    text = syncMeta,
+                                    text = "Upgrade to Ottero Cloud to sync your notes, tasks, calendar, habits and passwords across devices.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = palette.muted,
                                 )
@@ -553,29 +568,84 @@ private fun SettingsDetailPane(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Button(
-                                    enabled = !isSyncing,
-                                    onClick = {
-                                        isSyncing = true
-                                        scope.launch {
-                                            runSuspendCatching { engine.syncNow() }
-                                                .onSuccess { report ->
-                                                    feedback.info("Synced (${report.pushed} sent, ${report.pulled} received)")
-                                                }
-                                                .onFailure {
-                                                    feedback.error(it.message ?: "Sync failed")
-                                                }
-                                            isSyncing = false
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = palette.ink,
-                                        contentColor = palette.card,
-                                    ),
-                                ) {
-                                    Text(if (isSyncing) "Syncing…" else "Sync now")
+                                if (status.hasCloud) {
+                                    Button(
+                                        enabled = !isSyncing,
+                                        onClick = {
+                                            isSyncing = true
+                                            scope.launch {
+                                                runSuspendCatching { engine.syncNow() }
+                                                    .onSuccess { report ->
+                                                        feedback.info("Synced (${report.pushed} sent, ${report.pulled} received)")
+                                                    }
+                                                    .onFailure {
+                                                        feedback.error(it.message ?: "Sync failed")
+                                                    }
+                                                isSyncing = false
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = palette.ink,
+                                            contentColor = palette.card,
+                                        ),
+                                    ) {
+                                        Text(if (isSyncing) "Syncing…" else "Sync now")
+                                    }
+                                } else if (BuildConfig.SELF_UPDATE_ENABLED) {
+                                    Button(
+                                        enabled = !isSyncing,
+                                        onClick = {
+                                            isSyncing = true
+                                            scope.launch {
+                                                runSuspendCatching { engine.billingCheckoutUrl("yearly") }
+                                                    .onSuccess { url ->
+                                                        runCatching {
+                                                            context.startActivity(
+                                                                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                                            )
+                                                        }.onFailure {
+                                                            feedback.error("Couldn't open browser")
+                                                        }
+                                                    }
+                                                    .onFailure {
+                                                        feedback.error(it.message ?: "Couldn't open checkout")
+                                                    }
+                                                isSyncing = false
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = palette.ink,
+                                            contentColor = palette.card,
+                                        ),
+                                    ) {
+                                        Text("Upgrade to Cloud")
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        enabled = !isSyncing,
+                                        onClick = {
+                                            isSyncing = true
+                                            scope.launch {
+                                                runSuspendCatching { engine.refreshAccountPlan() }
+                                                    .onSuccess { updated ->
+                                                        feedback.info("Plan: ${updated.planLabel}")
+                                                    }
+                                                    .onFailure {
+                                                        feedback.error(it.message ?: "Couldn't refresh plan")
+                                                    }
+                                                isSyncing = false
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp),
+                                    ) {
+                                        Text("Refresh plan")
+                                    }
                                 }
                                 OutlinedButton(
                                     enabled = !isSyncing,
@@ -593,6 +663,62 @@ private fun SettingsDetailPane(
                                     shape = RoundedCornerShape(10.dp),
                                 ) {
                                     Text("Sign out", color = palette.danger)
+                                }
+                            }
+                            if (BuildConfig.SELF_UPDATE_ENABLED && (status.isPaidCloud || !status.hasCloud)) {
+                                Spacer(Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    if (status.isPaidCloud) {
+                                        TextButton(
+                                            enabled = !isSyncing,
+                                            onClick = {
+                                                isSyncing = true
+                                                scope.launch {
+                                                    runSuspendCatching { engine.billingPortalUrl() }
+                                                        .onSuccess { url ->
+                                                            runCatching {
+                                                                context.startActivity(
+                                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                                                )
+                                                            }.onFailure {
+                                                                feedback.error("Couldn't open browser")
+                                                            }
+                                                        }
+                                                        .onFailure {
+                                                            feedback.error(it.message ?: "Couldn't open billing portal")
+                                                        }
+                                                    isSyncing = false
+                                                }
+                                            },
+                                        ) {
+                                            Text("Manage billing", color = palette.ink)
+                                        }
+                                    } else {
+                                        TextButton(
+                                            enabled = !isSyncing,
+                                            onClick = {
+                                                isSyncing = true
+                                                scope.launch {
+                                                    runSuspendCatching { engine.refreshAccountPlan() }
+                                                        .onSuccess { updated ->
+                                                            feedback.info(
+                                                                if (updated.hasCloud) "Ottero Cloud active" else "Still on Free plan",
+                                                            )
+                                                        }
+                                                        .onFailure {
+                                                            feedback.error(it.message ?: "Couldn't refresh plan")
+                                                        }
+                                                    isSyncing = false
+                                                }
+                                            },
+                                        ) {
+                                            Text("Refresh plan", color = palette.ink)
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -83,10 +83,13 @@ class OtteroEngine(private val mobile: OtteroMobile) {
             if (!immediate) {
                 delay(350L)
             }
-            val signedIn = runCatching {
-                withContext(dbDispatcher) { mobile.accountStatus().signedIn }
+            val canSync = runCatching {
+                withContext(dbDispatcher) {
+                    val status = mobile.accountStatus()
+                    status.signedIn && status.hasCloud
+                }
             }.getOrDefault(false)
-            if (signedIn) {
+            if (canSync) {
                 requestCoalescedSync()
             }
         }
@@ -520,6 +523,23 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         realtime.stop()
         mobile.accountSignOut()
         _changes.tryEmit(Unit)
+    }
+
+    suspend fun refreshAccountPlan(): MobileAccountStatus = withContext(Dispatchers.IO) {
+        mobile.accountRefreshPlan().also { status ->
+            if (status.hasCloud) {
+                realtime.reconnectNow()
+            }
+            _changes.tryEmit(Unit)
+        }
+    }
+
+    suspend fun billingCheckoutUrl(interval: String = "yearly"): String = withContext(Dispatchers.IO) {
+        mobile.billingCheckoutUrl(interval)
+    }
+
+    suspend fun billingPortalUrl(): String = withContext(Dispatchers.IO) {
+        mobile.billingPortalUrl()
     }
 
     suspend fun syncWsCredentials(): SyncWsCredentials? = withContext(dbDispatcher) {

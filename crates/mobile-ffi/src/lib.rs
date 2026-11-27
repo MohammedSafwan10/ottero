@@ -470,6 +470,18 @@ impl OtteroMobile {
         sync::sign_out(&self.vault_key, &self.account)
     }
 
+    pub fn account_refresh_plan(&self) -> Result<MobileAccountStatus, MobileError> {
+        sync::refresh_plan(&self.store, &self.account)
+    }
+
+    pub fn billing_checkout_url(&self, interval: String) -> Result<String, MobileError> {
+        sync::billing_checkout_url(&self.account, &interval)
+    }
+
+    pub fn billing_portal_url(&self) -> Result<String, MobileError> {
+        sync::billing_portal_url(&self.account)
+    }
+
     pub fn sync_now(&self) -> Result<MobileSyncReport, MobileError> {
         sync::sync_now(&self.store, &self.vault_key, &self.account)
     }

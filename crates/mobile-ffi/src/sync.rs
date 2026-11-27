@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use ottero_core::clock;
+use ottero_core::account::{CloudSource, Plan};
+use ottero_core::{Timestamp, clock};
 use ottero_crypto::account::{
     AccountKdf, AccountSecretKey, decode_salt, derive_account_keys, normalize_email,
     unwrap_account_key,
@@ -40,6 +41,7 @@ pub(crate) struct ActiveAccount {
     pub(crate) account_id: String,
     pub(crate) bearer_token: Zeroizing<String>,
     pub(crate) account_key: SecretKey,
+    pub(crate) plan: Plan,
 }
 
 pub(crate) struct PendingTwoStep {
@@ -162,15 +164,36 @@ pub(crate) fn derive_sync_account_id(email: &str) -> String {
     shared_derive_sync_account_id(email)
 }
 
+#[derive(Deserialize)]
+struct MeCloudBody {
+    source: String,
+    #[serde(default)]
+    ends_at: Option<Timestamp>,
+}
+
+#[derive(Deserialize)]
+struct MeBody {
+    email: String,
+    #[serde(default)]
+    role: String,
+    #[serde(default)]
+    cloud: Option<MeCloudBody>,
+}
+
+impl MeBody {
+    fn plan(&self) -> Plan {
+        Plan::from_parts(
+            &self.role,
+            self.cloud.as_ref().map(|c| (c.source.as_str(), c.ends_at)),
+        )
+    }
+}
+
 fn fetch_me_and_unwrap_key(
     agent: &ureq::Agent,
     bearer: &str,
     wrap_key: &SecretKey,
-) -> Result<(String, String, SecretKey), MobileError> {
-    #[derive(Deserialize)]
-    struct MeBody {
-        email: String,
-    }
+) -> Result<(String, String, SecretKey, Plan), MobileError> {
     #[derive(Deserialize)]
     struct KeysBody {
         wrapped_by_password: String,
@@ -185,6 +208,7 @@ fn fetch_me_and_unwrap_key(
     let me: MeBody = serde_json::from_slice(&me_reply.body).map_err(|_| MobileError::Storage {
         reason: "Unexpected account response".into(),
     })?;
+    let plan = me.plan();
 
     let keys_reply = get_authed(agent, "/api/keys", bearer)?;
     if !(200..300).contains(&keys_reply.status) {
@@ -205,7 +229,7 @@ fn fetch_me_and_unwrap_key(
 
     let canonical_email = normalize_email(&me.email);
     let sync_account_id = derive_sync_account_id(&canonical_email);
-    Ok((sync_account_id, canonical_email, account_key))
+    Ok((sync_account_id, canonical_email, account_key, plan))
 }
 
 fn ensure_device_id(store: &Store, account_id: &str) -> Result<String, MobileError> {
@@ -328,6 +352,7 @@ pub(crate) fn unlock_vault_with_account(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish_session_install(
     store_mutex: &Mutex<Store>,
     vault_mutex: &Mutex<VaultKeyState>,
@@ -336,6 +361,7 @@ fn finish_session_install(
     email: String,
     bearer_token: Zeroizing<String>,
     account_key: SecretKey,
+    plan: Plan,
 ) -> Result<AccountSessionBundle, MobileError> {
     let key_b64 = BASE64.encode(account_key.expose());
     let bundle = AccountSessionBundle {
@@ -368,6 +394,7 @@ fn finish_session_install(
         account_id,
         bearer_token,
         account_key,
+        plan,
     });
     Ok(bundle)
 }
@@ -467,7 +494,7 @@ pub(crate) fn sign_in(
         .ok_or_else(|| MobileError::Storage {
             reason: "Missing session token".into(),
         })?;
-    let (account_id, canonical_email, account_key) =
+    let (account_id, canonical_email, account_key, plan) =
         fetch_me_and_unwrap_key(&agent, &token, derived.wrap_key())?;
     let bundle = finish_session_install(
         store_mutex,
@@ -477,6 +504,7 @@ pub(crate) fn sign_in(
         canonical_email,
         token,
         account_key,
+        plan,
     )?;
     Ok(MobileSignInResult {
         status: MobileSignInStatus::SignedIn,
@@ -530,7 +558,7 @@ pub(crate) fn verify_two_step(
     let token = reply.auth_token.ok_or_else(|| MobileError::Storage {
         reason: "Missing session token".into(),
     })?;
-    let (account_id, canonical_email, account_key) =
+    let (account_id, canonical_email, account_key, plan) =
         fetch_me_and_unwrap_key(&agent, &token, &wrap_key)?;
     let bundle = finish_session_install(
         store_mutex,
@@ -540,6 +568,7 @@ pub(crate) fn verify_two_step(
         canonical_email,
         token,
         account_key,
+        plan,
     )?;
     Ok(MobileSignInResult {
         status: MobileSignInStatus::SignedIn,
@@ -575,6 +604,25 @@ pub(crate) fn restore_session(
     let derived_account_id = derive_sync_account_id(&canonical_email);
     let _ = account_id;
 
+    // Optimistically preserve Cloud status offline if this device has synced
+    // before; `refresh_plan` updates it from `/api/me` once online.
+    let initial_plan = {
+        let store = store_mutex.lock().map_err(|_| MobileError::LockPoisoned)?;
+        if store
+            .sync_state()
+            .ok()
+            .and_then(|s| s.last_synced_at)
+            .is_some()
+        {
+            Plan::Cloud {
+                source: CloudSource::Paid,
+                ends_at: None,
+            }
+        } else {
+            Plan::Free
+        }
+    };
+
     let _ = finish_session_install(
         store_mutex,
         vault_mutex,
@@ -583,6 +631,7 @@ pub(crate) fn restore_session(
         canonical_email,
         Zeroizing::new(bearer_token),
         account_key,
+        initial_plan,
     )?;
     Ok(())
 }
@@ -616,16 +665,160 @@ pub(crate) fn account_status(
 ) -> Result<MobileAccountStatus, MobileError> {
     let sync = store.sync_state()?;
     let pending = store.pending_sync_count()?;
+    let (plan_label, has_cloud, is_paid_cloud) = match account_state.active.as_ref() {
+        Some(active) => (
+            active.plan.label().to_owned(),
+            active.plan.has_cloud(),
+            matches!(
+                active.plan,
+                Plan::Cloud {
+                    source: CloudSource::Paid,
+                    ..
+                }
+            ),
+        ),
+        None => ("Free".to_owned(), false, false),
+    };
     Ok(MobileAccountStatus {
         signed_in: account_state.active.is_some(),
         email: account_state.active.as_ref().map(|a| a.email.clone()),
+        plan_label,
+        has_cloud,
+        is_paid_cloud,
         last_synced_at_ms: sync.last_synced_at.map(|t| t.as_millisecond()),
         pending_outbox_count: u32::try_from(pending).unwrap_or(u32::MAX),
     })
 }
 
+/// Refreshes the signed-in account's plan from `GET /api/me`.
+pub(crate) fn refresh_plan(
+    store_mutex: &Mutex<Store>,
+    account_mutex: &Mutex<AccountSessionState>,
+) -> Result<MobileAccountStatus, MobileError> {
+    let token = {
+        let acct = account_mutex
+            .lock()
+            .map_err(|_| MobileError::LockPoisoned)?;
+        let active = acct
+            .active
+            .as_ref()
+            .ok_or_else(|| MobileError::InvalidInput {
+                reason: "Sign in to Ottero Cloud first.".into(),
+            })?;
+        active.bearer_token.clone()
+    };
+    let agent = http_agent();
+    let me_reply = get_authed(&agent, "/api/me", &token)?;
+    if !(200..300).contains(&me_reply.status) {
+        return Err(MobileError::InvalidInput {
+            reason: "Session expired. Please sign in again.".into(),
+        });
+    }
+    let me: MeBody = serde_json::from_slice(&me_reply.body).map_err(|_| MobileError::Storage {
+        reason: "Unexpected account response".into(),
+    })?;
+    let plan = me.plan();
+    let mut acct = account_mutex
+        .lock()
+        .map_err(|_| MobileError::LockPoisoned)?;
+    if let Some(active) = acct.active.as_mut() {
+        active.plan = plan;
+    }
+    let store = store_mutex.lock().map_err(|_| MobileError::LockPoisoned)?;
+    account_status(&store, &acct)
+}
+
+/// Requests a hosted Ottero Cloud checkout URL (`interval`: `"monthly"` or `"yearly"`).
+pub(crate) fn billing_checkout_url(
+    account_mutex: &Mutex<AccountSessionState>,
+    interval: &str,
+) -> Result<String, MobileError> {
+    #[derive(Deserialize)]
+    struct UrlBody {
+        url: String,
+    }
+    let token = {
+        let acct = account_mutex
+            .lock()
+            .map_err(|_| MobileError::LockPoisoned)?;
+        let active = acct
+            .active
+            .as_ref()
+            .ok_or_else(|| MobileError::InvalidInput {
+                reason: "Sign in to upgrade to Ottero Cloud.".into(),
+            })?;
+        active.bearer_token.clone()
+    };
+    let agent = http_agent();
+    let reply = post_json(
+        &agent,
+        "/api/billing/checkout",
+        &json!({ "interval": interval }),
+        Some(&token),
+        None,
+    )?;
+    if !(200..300).contains(&reply.status) {
+        return Err(MobileError::Storage {
+            reason: "Couldn't open checkout right now. Try again.".into(),
+        });
+    }
+    let body: UrlBody = serde_json::from_slice(&reply.body).map_err(|_| MobileError::Storage {
+        reason: "Unexpected checkout response".into(),
+    })?;
+    if !body.url.starts_with("https://") {
+        return Err(MobileError::Storage {
+            reason: "Invalid checkout URL".into(),
+        });
+    }
+    Ok(body.url)
+}
+
+/// Requests a hosted billing portal URL for managing an active Ottero Cloud plan.
+pub(crate) fn billing_portal_url(
+    account_mutex: &Mutex<AccountSessionState>,
+) -> Result<String, MobileError> {
+    #[derive(Deserialize)]
+    struct UrlBody {
+        url: String,
+    }
+    let token = {
+        let acct = account_mutex
+            .lock()
+            .map_err(|_| MobileError::LockPoisoned)?;
+        let active = acct
+            .active
+            .as_ref()
+            .ok_or_else(|| MobileError::InvalidInput {
+                reason: "Sign in to manage billing.".into(),
+            })?;
+        active.bearer_token.clone()
+    };
+    let agent = http_agent();
+    let reply = post_json(
+        &agent,
+        "/api/billing/portal",
+        &json!({}),
+        Some(&token),
+        None,
+    )?;
+    if !(200..300).contains(&reply.status) {
+        return Err(MobileError::Storage {
+            reason: "Couldn't open billing portal right now. Try again.".into(),
+        });
+    }
+    let body: UrlBody = serde_json::from_slice(&reply.body).map_err(|_| MobileError::Storage {
+        reason: "Unexpected billing portal response".into(),
+    })?;
+    if !body.url.starts_with("https://") {
+        return Err(MobileError::Storage {
+            reason: "Invalid billing portal URL".into(),
+        });
+    }
+    Ok(body.url)
+}
+
 /// Returns the WebSocket URL (`wss://.../v1/sync/ws`), bearer token, and current
-/// pull cursor for the active signed-in session so Android's foreground
+/// pull cursor for the active signed-in Cloud session so Android's foreground
 /// realtime listener can receive instant `seq_advanced` notices.
 pub(crate) fn ws_credentials(
     store: &Store,
@@ -634,6 +827,9 @@ pub(crate) fn ws_credentials(
     let Some(active) = account_state.active.as_ref() else {
         return Ok(None);
     };
+    if !active.plan.has_cloud() {
+        return Ok(None);
+    }
     let sync = store.sync_state()?;
     let ws_base = DEFAULT_SYNC_URL
         .trim_end_matches('/')
@@ -682,7 +878,7 @@ pub(crate) fn sync_now(
         let _ = enqueue_full_snapshot(&store, &device_id, now);
     }
 
-    let report = sync_once_with_apply(
+    let report = match sync_once_with_apply(
         &mut store,
         &client,
         &bearer,
@@ -694,10 +890,24 @@ pub(crate) fn sync_now(
             apply_decrypted_page(s, page)?;
             Ok(())
         },
-    )
-    .map_err(|e| MobileError::Storage {
-        reason: e.to_string(),
-    })?;
+    ) {
+        Ok(report) => report,
+        Err(ottero_sync_client::SyncClientError::EntitlementRequired) => {
+            if let Ok(mut acct) = account_mutex.lock()
+                && let Some(active) = acct.active.as_mut()
+            {
+                active.plan = Plan::Free;
+            }
+            return Err(MobileError::Storage {
+                reason: "An active Ottero Cloud plan is required to sync.".into(),
+            });
+        }
+        Err(e) => {
+            return Err(MobileError::Storage {
+                reason: e.to_string(),
+            });
+        }
+    };
 
     // If remote sync delivered or updated `vault-meta`, unlock Passwords automatically.
     // If no vault exists on any device yet, initialize an account-linked vault now.
