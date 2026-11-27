@@ -173,8 +173,19 @@ jobs:
       - name: Build Android Rust FFI and release APK
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+          OTTERO_KEYSTORE_BASE64: ${{ secrets.OTTERO_KEYSTORE_BASE64 }}
+          OTTERO_KEYSTORE_PASSWORD: ${{ secrets.OTTERO_KEYSTORE_PASSWORD }}
+          OTTERO_KEY_ALIAS: ${{ secrets.OTTERO_KEY_ALIAS }}
+          OTTERO_KEY_PASSWORD: ${{ secrets.OTTERO_KEY_PASSWORD }}
         run: |
           ./scripts/build-android-rust.sh --release
+          if [ -n "$OTTERO_KEYSTORE_BASE64" ]; then
+            KEYSTORE_FILE="${RUNNER_TEMP}/ottero-upload.jks"
+            trap 'rm -f "$KEYSTORE_FILE"' EXIT
+            printf '%s' "$OTTERO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"
+            chmod 600 "$KEYSTORE_FILE"
+            export OTTERO_KEYSTORE_PATH="$KEYSTORE_FILE"
+          fi
           (cd apps/android && ./gradlew assembleDirectRelease)
           mkdir -p dist
           cp apps/android/app/build/outputs/apk/direct/release/app-direct-release.apk "dist/Ottero-${VERSION}-android.apk"
