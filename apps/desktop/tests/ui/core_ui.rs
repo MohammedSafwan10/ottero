@@ -471,15 +471,19 @@ fn release_history_opens_from_about_and_returns_by_button_or_escape(cx: &mut Tes
         })
         .expect("open release notes");
         cx.run_until_parked();
+        let latest_title: String =
+            serde_json::from_str::<Vec<serde_json::Value>>(include_str!("../../changelog.json"))
+                .expect("changelog json")
+                .first()
+                .and_then(|e| e.get("title"))
+                .and_then(|t| t.as_str())
+                .expect("latest release title")
+                .to_owned();
         cx.update_window(app.window, |_, w, cx| {
             w.render_frame(cx);
             let texts = gpui_kit::base::test_support::texts(w);
             assert!(texts.iter().any(|t| t.text() == "What’s new"));
-            assert!(
-                texts
-                    .iter()
-                    .any(|t| t.text() == "Complete Trash, Subtask, and Daily Note Sync")
-            );
+            assert!(texts.iter().any(|t| t.text() == latest_title));
             assert!(texts.iter().any(|t| t.text() == "Installed"));
             w.click("release-0.1.1", cx);
         })
