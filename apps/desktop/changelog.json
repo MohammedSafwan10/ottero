@@ -1,5 +1,29 @@
 [
   {
+    "version": "0.4.4",
+    "date": "2026-11-27",
+    "title": "Signed Android In-App Updates & Sync Hardening",
+    "summary": "Android direct APKs are now permanently signed with verified in-app updates, alongside edge-case sync and reconnect hardening across Desktop and Mobile.",
+    "sections": [
+      {
+        "title": "Added",
+        "emoji": "📱",
+        "items": [
+          "Signed in-app updates on Android (Settings → About → Check now) using the same minisign release key and SHA-256 verification as Desktop.",
+          "Permanent release signing for official Android APKs so future updates install smoothly in-place."
+        ]
+      },
+      {
+        "title": "Fixed",
+        "emoji": "🛠️",
+        "items": [
+          "Hardened inline WebSocket sync to respect pending full-resync state and automatically refresh cached collection keys on key rotation.",
+          "Desktop manual Sync now automatically restores the live WebSocket listener if it had previously stopped."
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.4.3",
     "date": "2026-11-27",
     "title": "Instant Live Sync & Quiet Unlock Indicator",

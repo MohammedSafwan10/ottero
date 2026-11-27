@@ -5500,7 +5500,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-core"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "csv",
  "jiff",
@@ -5518,7 +5518,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-crypto"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -5534,7 +5534,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-desktop"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5570,7 +5570,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-mobile-ffi"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "base64 0.22.1",
  "jiff",
@@ -5590,7 +5590,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-storage"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "jiff",
  "ottero-core",
@@ -5606,7 +5606,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-sync-client"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "ottero-core",
  "ottero-crypto",
@@ -5621,7 +5621,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-sync-protocol"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -5632,7 +5632,7 @@ dependencies = [
 
 [[package]]
 name = "ottero-ui"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "gpui-kit",
  "serde",

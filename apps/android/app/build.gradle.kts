@@ -11,8 +11,8 @@ android {
     applicationId = "com.nexdark.ottero"
     minSdk = 28
     targetSdk = 36
-    versionCode = 3
-    versionName = "0.4.3"
+    versionCode = 4
+    versionName = "0.4.4"
   }
 
   signingConfigs {
