@@ -17,6 +17,41 @@ use crate::error::MobileError;
 const FEED_TIMEOUT: Duration = Duration::from_secs(30);
 const ANDROID_PLATFORM: &str = "android-apk";
 
+/// Verifies a `stable.json` + `stable.json.minisig` pair fetched by Android's
+/// native OkHttp stack against Ottero's pinned `RELEASE_KEY` and release URL.
+pub(crate) fn verify_update_feed(
+    location: &str,
+    feed_bytes: &[u8],
+    signature: &str,
+) -> Result<Option<MobileUpdateInfo>, MobileError> {
+    if feed_url_for_release(location).is_none() {
+        return Err(MobileError::Storage {
+            reason: "Invalid release redirect location.".into(),
+        });
+    }
+    if feed_bytes.len() > MAX_FEED_BYTES {
+        return Err(MobileError::Storage {
+            reason: "Update metadata exceeds size limit.".into(),
+        });
+    }
+    let feed =
+        Feed::verified(feed_bytes, signature, RELEASE_KEY).map_err(|_| MobileError::Storage {
+            reason: "Update signature verification failed.".into(),
+        })?;
+    let current = env!("CARGO_PKG_VERSION");
+    let Some(download) = feed.newer_for(current, ANDROID_PLATFORM).cloned() else {
+        return Ok(None);
+    };
+    Ok(Some(MobileUpdateInfo {
+        version: feed.version,
+        date: feed.date,
+        notes: feed.notes,
+        download_url: download.url,
+        sha256: download.sha256,
+        size_bytes: download.size,
+    }))
+}
+
 fn update_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(FEED_TIMEOUT))
@@ -45,8 +80,6 @@ fn fetch_bytes(agent: &ureq::Agent, url: &str, limit: u64) -> Result<Vec<u8>, Mo
 }
 
 /// Checks `ottero-releases` for a signed release newer than this build.
-/// Returns `Ok(Some(info))` when a valid `android-apk` update is available, or
-/// `Ok(None)` when already up to date.
 pub(crate) fn check_for_update() -> Result<Option<MobileUpdateInfo>, MobileError> {
     let agent = update_agent();
     let response = agent
@@ -64,20 +97,5 @@ pub(crate) fn check_for_update() -> Result<Option<MobileUpdateInfo>, MobileError
     let signature = String::from_utf8(sig_bytes).map_err(|_| MobileError::Storage {
         reason: "Invalid update signature encoding.".into(),
     })?;
-    let feed =
-        Feed::verified(&bytes, &signature, RELEASE_KEY).map_err(|_| MobileError::Storage {
-            reason: "Update signature verification failed.".into(),
-        })?;
-    let current = env!("CARGO_PKG_VERSION");
-    let Some(download) = feed.newer_for(current, ANDROID_PLATFORM).cloned() else {
-        return Ok(None);
-    };
-    Ok(Some(MobileUpdateInfo {
-        version: feed.version,
-        date: feed.date,
-        notes: feed.notes,
-        download_url: download.url,
-        sha256: download.sha256,
-        size_bytes: download.size,
-    }))
+    verify_update_feed(&location, &bytes, &signature)
 }

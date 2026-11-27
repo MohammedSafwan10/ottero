@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import com.nexdark.ottero.core.bridge.OtteroEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -34,9 +35,59 @@ object AppUpdater {
         .followSslRedirects(false)
         .build()
 
+    private const val RELEASES_LATEST_URL =
+        "https://github.com/MohammedSafwan10/ottero-releases/releases/latest"
+    private const val TAG_PREFIX =
+        "https://github.com/MohammedSafwan10/ottero-releases/releases/tag/"
+
     sealed interface InstallResult {
         data object Launched : InstallResult
         data object NeedsPermission : InstallResult
+    }
+
+    /**
+     * Fetches the release redirect, `stable.json`, and `stable.json.minisig`
+     * over Android's native OkHttp stack (Happy Eyeballs IPv4/IPv6 + system DNS),
+     * then verifies the minisign signature in Rust (`ottero_core::update`).
+     */
+    suspend fun checkForUpdate(engine: OtteroEngine): MobileUpdateInfo? = withContext(Dispatchers.IO) {
+        val headReq = Request.Builder()
+            .url(RELEASES_LATEST_URL)
+            .head()
+            .header("User-Agent", "Ottero (Android)")
+            .build()
+        val location = httpClient.newCall(headReq).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                error("Couldn't check for updates (HTTP ${resp.code}).")
+            }
+            resp.request.url.toString()
+        }
+        val tag = location.removePrefix(TAG_PREFIX)
+        if (tag == location || !tag.matches(Regex("^v?\\d+\\.\\d+\\.\\d+$"))) {
+            error("Unexpected release location.")
+        }
+        val feedUrl = "https://github.com/MohammedSafwan10/ottero-releases/releases/download/$tag/stable.json"
+        val feedBytes = fetchBounded(feedUrl, 64 * 1024)
+        val sigText = fetchBounded("$feedUrl.minisig", 4096).toString(Charsets.UTF_8)
+        engine.verifyUpdateFeed(location, feedBytes, sigText)
+    }
+
+    private fun fetchBounded(url: String, maxBytes: Int): ByteArray {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Ottero (Android)")
+            .build()
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                error("Couldn't download update metadata (HTTP ${resp.code}).")
+            }
+            val body = resp.body ?: error("Empty update metadata.")
+            val bytes = body.bytes()
+            if (bytes.size > maxBytes) {
+                error("Update metadata exceeded size limit.")
+            }
+            return bytes
+        }
     }
 
     suspend fun downloadVerified(

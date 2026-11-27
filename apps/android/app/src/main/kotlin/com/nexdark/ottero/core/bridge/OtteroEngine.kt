@@ -145,8 +145,15 @@ class OtteroEngine(private val mobile: OtteroMobile) {
         mobile.appInfo()
     }
 
-    suspend fun checkForUpdate(): MobileUpdateInfo? = withContext(Dispatchers.IO) {
-        mobile.checkForUpdate()
+    suspend fun checkForUpdate(): MobileUpdateInfo? =
+        com.nexdark.ottero.core.update.AppUpdater.checkForUpdate(this)
+
+    suspend fun verifyUpdateFeed(
+        location: String,
+        feedBytes: ByteArray,
+        signature: String,
+    ): MobileUpdateInfo? = withContext(Dispatchers.IO) {
+        mobile.verifyUpdateFeed(location, feedBytes, signature)
     }
 
     suspend fun todaySnapshot(): TodaySnapshot = withContext(dbDispatcher) {

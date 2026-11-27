@@ -508,6 +508,17 @@ impl OtteroMobile {
         update::check_for_update()
     }
 
+    /// Verifies a `stable.json` + `stable.json.minisig` pair fetched via
+    /// Android's native OkHttp client against `RELEASE_KEY`.
+    pub fn verify_update_feed(
+        &self,
+        location: String,
+        feed_bytes: Vec<u8>,
+        signature: String,
+    ) -> Result<Option<MobileUpdateInfo>, MobileError> {
+        update::verify_update_feed(&location, &feed_bytes, &signature)
+    }
+
     pub fn set_task_project(
         &self,
         id: String,
